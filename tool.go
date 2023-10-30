@@ -850,16 +850,7 @@ func hasSourceMapSupport(quiet bool) bool {
 	return true
 }
 
-// runNode runs script with args using Node.js in directory dir.
-// If dir is empty string, current directory is used.
-// Is out is not nil, process stderr and stdout are redirected to it, otherwise
-// os.Stdout and os.Stderr are used.
-func runNode(script string, args []string, dir string, quiet bool, out io.Writer) error {
-	var allArgs []string
-	if hasSourceMapSupport(quiet) {
-		allArgs = append(allArgs, `--require`, `source-map-support/register`)
-	}
-
+func adjustNodeStackSize() (uint64, error) {
 	if runtime.GOOS != "windows" {
 		// We've seen issues with stack space limits causing
 		// recursion-heavy standard library tests to fail (e.g., see
@@ -880,14 +871,34 @@ func runNode(script string, args []string, dir string, quiet bool, out io.Writer
 		//
 		cur, err := sysutil.RlimitStack()
 		if err != nil {
-			return fmt.Errorf("failed to get stack size limit: %v", err)
+			return 0, fmt.Errorf("failed to get stack size limit: %v", err)
 		}
 		cur = cur / 1024           // Convert bytes to KiB.
 		defaultSize := uint64(984) // --stack-size default value.
 		if backoff := uint64(64); cur > defaultSize+backoff {
 			cur = cur - backoff
 		}
-		allArgs = append(allArgs, fmt.Sprintf("--stack_size=%v", cur))
+		return cur, nil
+	}
+	return 0, nil
+}
+
+// runNode runs script with args using Node.js in directory dir.
+// If dir is empty string, current directory is used.
+// Is out is not nil, process stderr and stdout are redirected to it, otherwise
+// os.Stdout and os.Stderr are used.
+func runNode(script string, args []string, dir string, quiet bool, out io.Writer) error {
+	var allArgs []string
+	if hasSourceMapSupport(quiet) {
+		allArgs = append(allArgs, `--require`, `source-map-support/register`)
+	}
+
+	stackSize, err := adjustNodeStackSize()
+	if err != nil {
+		return err
+	}
+	if stackSize > 0 {
+		allArgs = append(allArgs, fmt.Sprintf(`--stack_size=%v`, stackSize))
 	}
 
 	allArgs = append(allArgs, script)
@@ -903,7 +914,7 @@ func runNode(script string, args []string, dir string, quiet bool, out io.Writer
 		node.Stdout = os.Stdout
 		node.Stderr = os.Stderr
 	}
-	err := node.Run()
+	err = node.Run()
 	if _, ok := err.(*exec.ExitError); err != nil && !ok {
 		err = fmt.Errorf(`could not run Node.js: %w`, err)
 	}
