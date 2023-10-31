@@ -840,7 +840,7 @@ func hasSourceMapSupport(quiet bool) bool {
 		}
 	}
 
-	srcMapCmd := exec.Command(`node`, `--require`, `source-map-support/register`, `--eval`, `""`)
+	srcMapCmd := exec.Command(`node`, `--require`, `source-map-support/register`, `--eval`, ``)
 	if err := srcMapCmd.Run(); err != nil {
 		if !quiet {
 			fmt.Fprintln(os.Stderr, `gopherjs: Source maps disabled. See https://github.com/gopherjs/gopherjs#gopherjs-run-gopherjs-test.`)

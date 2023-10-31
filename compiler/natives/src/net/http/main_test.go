@@ -12,7 +12,7 @@ import (
 // This is an almost verbatim copy of the upstream, except one line which was
 // adjusted to match GopherJS call stacks.
 // This overlay can be remoed if/when https://github.com/golang/go/pull/49128
-// is merged and reached a stable Go release (likely 1.18).
+// is merged and reached a stable Go release (likely 1.19).
 func interestingGoroutines() (gs []string) {
 	buf := make([]byte, 2<<20)
 	buf = buf[:runtime.Stack(buf, true)]

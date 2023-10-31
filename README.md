@@ -15,6 +15,7 @@ GopherJS compiles Go code ([go.dev](https://go.dev/)) to pure JavaScript code. I
 
 ### What's new?
 
+- 2023-10-31: Go 1.19 support is in progress.
 - 2022-08-18: Go 1.18 support is [available](https://github.com/gopherjs/gopherjs/releases/tag/v1.18.0-beta2%2Bgo1.18.5)!
 - 2021-09-19: Go 1.17 support is available!
 - 2021-08-23: Go Modules are now fully supported.
@@ -31,7 +32,7 @@ Nearly everything, including Goroutines ([compatibility documentation](https://g
 
 ### Installation and Usage
 
-GopherJS [requires Go 1.18 or newer](https://github.com/gopherjs/gopherjs/blob/master/doc/compatibility.md#go-version-compatibility). If you need an older Go
+GopherJS [requires Go 1.19 or newer](https://github.com/gopherjs/gopherjs/blob/master/doc/compatibility.md#go-version-compatibility). If you need an older Go
 version, you can use an [older GopherJS release](https://github.com/gopherjs/gopherjs/releases).
 
 Install GopherJS with `go install`:
@@ -40,12 +41,12 @@ Install GopherJS with `go install`:
 go install github.com/gopherjs/gopherjs@v1.18.0-beta3  # Or replace 'v1.18.0-beta3' with another version.
 ```
 
-If your local Go distribution as reported by `go version` is newer than Go 1.18, then you need to set the `GOPHERJS_GOROOT` environment variable to a directory that contains a Go 1.18 distribution. For example:
+If your local Go distribution as reported by `go version` is newer than Go 1.19, then you need to set the `GOPHERJS_GOROOT` environment variable to a directory that contains a Go 1.19 distribution. For example:
 
 ```bash
-go install golang.org/dl/go1.18.10@latest
-go1.18.10 download
-export GOPHERJS_GOROOT="$(go1.18.10 env GOROOT)"  # Also add this line to your .profile or equivalent.
+go install golang.org/dl/go1.19.13@latest
+go1.19.13 download
+export GOPHERJS_GOROOT="$(go1.19.13 env GOROOT)"  # Also add this line to your .profile or equivalent.
 ```
 
 Now you can use `gopherjs build [package]`, `gopherjs build [files]` or `gopherjs install [package]` which behave similar to the `go` tool. For `main` packages, these commands create a `.js` file and `.js.map` source map in the current directory or in `$GOPATH/bin`. The generated JavaScript file can be used as usual in a website. Use `gopherjs help [command]` to get a list of possible command line flags, e.g. for minification and automatically watching for changes.
