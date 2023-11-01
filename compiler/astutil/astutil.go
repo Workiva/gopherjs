@@ -1,8 +1,10 @@
 package astutil
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
+	"go/printer"
 	"go/token"
 	"go/types"
 	"strings"
@@ -68,6 +70,13 @@ func FuncKey(d *ast.FuncDecl) string {
 	recv := d.Recv.List[0].Type
 	if star, ok := recv.(*ast.StarExpr); ok {
 		recv = star.X
+	}
+	if idx, ok := recv.(*ast.IndexExpr); ok {
+		var buf bytes.Buffer
+		if err := printer.Fprint(&buf, token.NewFileSet(), idx); err != nil {
+			panic(err)
+		}
+		panic(fmt.Errorf("generic receiver detected: %q", buf.String()))
 	}
 	return recv.(*ast.Ident).Name + "." + d.Name.Name
 }
