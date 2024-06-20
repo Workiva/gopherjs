@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [ "*" ]
+  pull_request:
+    branches: [ "*" ]
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: 1.19.13
+  NODE_VERSION: 20
+  GOLANGCI_VERSION: v1.53.3
+  GOPHERJS_EXPERIMENT: generics
+  SOURCE_MAP_SUPPORT: true
+  GOPATH: ${{ github.workspace }}/go
+  GOPHERJS_PATH: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}
+
+jobs:
+  smoke_tests:
+    name: Smoke Tests
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ env.GOPHERJS_PATH }}
+      - name: Copy Actions
+        run: cp -r ${{ env.GOPHERJS_PATH }}/.github .
+      - name: Setup GopherJS
+        uses: ./.github/actions/setup-gopherjs/
+        with:
+          os: ${{ matrix.os }}
+      - name: Test GopherJS
+        working-directory: ${{ env.GOPHERJS_PATH }}
+        run: go test -v -short ./...
+      - name: Run Tests
+        working-directory: ${{ env.GOPHERJS_PATH }}
+        run: |
+          gopherjs build -v net/http
+          gopherjs test -v --short ./tests
+          gopherjs test -v --short fmt log os sort
+
+  lint:
+    name: Lint Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ env.GOPHERJS_PATH }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          working-directory: ${{ env.GOPHERJS_PATH }}
+          version: ${{ env.GOLANGCI_VERSION }}
+          only-new-issues: true
+      - name: Check go.mod
+        working-directory: ${{ env.GOPHERJS_PATH }}
+        run: go mod tidy && git diff --exit-code
+      - name: Check natives build tags
+        working-directory: ${{ env.GOPHERJS_PATH }}
+        # All those packages should have // +build js.
+        run: diff -u <(echo -n) <(go list ./compiler/natives/src/...)

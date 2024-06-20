@@ -1,0 +1,64 @@
+name: Setup GopherJS
+description: Sets up Go, Node.js, and GopherJS
+inputs:
+  os:
+    description: The operating system to run the action on
+    required: true
+    default: ubuntu-latest
+runs:
+  using: composite
+  steps:
+    
+    - uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+    
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+  
+    - name: Install Node.js for non-Linux
+      if: ${{ inputs.os != 'ubuntu-latest' }}
+      working-directory: ${{ env.GOPHERJS_PATH }}
+      shell: bash
+      # Install required Node.js packages without optional (node-syscall).
+      run: npm install --omit=optional --no-package-lock
+
+    - name: Install Node.js for Linux
+      if: ${{ inputs.os == 'ubuntu-latest' }}
+      working-directory: ${{ env.GOPHERJS_PATH }}
+      shell: bash
+      # Install required Node.js packages including optional (node-syscall).
+      run: |
+        npm install --include=optional
+        cd gopherjs/node-syscall/
+        npm install
+
+    - name: Setup Node.js
+      working-directory: ${{ env.GOPHERJS_PATH }}
+      shell: bash
+      # Make nodejs able to require installed modules from any working path.
+      run: echo "NODE_PATH=$(npm root)" >> $GITHUB_ENV
+    
+    - name: Adjust Windows Variables
+      if: ${{ inputs.os == 'windows-latest' }}
+      shell: bash
+      run: |
+        echo "SOURCE_MAP_SUPPORT=false" >> $env:GITHUB_ENV
+        # see https://github.com/actions/runner-images/issues/712#issuecomment-613004302
+        echo "TEMP=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
+        echo "TMP=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
+        echo "TMPDIR=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
+
+    - name: Install GopherJS
+      working-directory: ${{ env.GOPHERJS_PATH }}
+      shell: bash
+      run: go install -v
+    
+    - name: Setup information
+      shell: bash
+      run: |
+        echo ::notice::$(go version)
+        echo ::notice::$(node -v)
+        echo ::notice::$(npm -v)
+        echo ::notice::$(gopherjs version)
