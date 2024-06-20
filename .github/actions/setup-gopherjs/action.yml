@@ -31,7 +31,7 @@ runs:
       # Install required Node.js packages including optional (node-syscall).
       run: |
         npm install --include=optional
-        cd gopherjs/node-syscall/
+        cd ./node-syscall/
         npm install
 
     - name: Setup Node.js
