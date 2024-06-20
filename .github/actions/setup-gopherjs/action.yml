@@ -31,7 +31,9 @@ runs:
       # Install required Node.js packages including optional (node-syscall).
       run: |
         npm install --include=optional
-        ls ${{ env.GOPHERJS_PATH }}
+        echo "====================="
+        ls -la ${{ env.GOPHERJS_PATH }}
+        echo "====================="
         npm install
 
     - name: Setup Node.js
