@@ -161,7 +161,7 @@ func (fc *funcContext) newImportDecl(importedPkg *types.Package) *Decl {
 	pkgVar := fc.importedPkgVar(importedPkg)
 	d := &Decl{
 		Vars:     []string{pkgVar},
-		DeclCode: []byte(fmt.Sprintf("\t%s = $packages[\"%s\"];\n", pkgVar, importedPkg.Path())),
+		DeclCode: []byte(fmt.Sprintf("\t%s = await $getPackage(\"%s\");\n", pkgVar, importedPkg.Path())),
 		InitCode: fc.CatchOutput(1, func() { fc.translateStmt(fc.importInitializer(importedPkg.Path()), nil) }),
 	}
 	d.Dce().SetAsAlive()

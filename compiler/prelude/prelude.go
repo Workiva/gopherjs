@@ -8,10 +8,13 @@ import (
 )
 
 // Prelude is the GopherJS JavaScript interop layer.
-var Prelude = prelude + numeric + types + goroutines + jsmapping
+var Prelude = prelude + packages + numeric + types + goroutines + jsmapping
 
 //go:embed prelude.js
 var prelude string
+
+//go:embed packages.js
+var packages string
 
 //go:embed types.js
 var types string

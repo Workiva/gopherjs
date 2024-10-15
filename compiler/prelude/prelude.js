@@ -55,7 +55,7 @@ if (!$global.fs) {
 }
 
 var $linknames = {} // Collection of functions referenced by a go:linkname directive.
-var $packages = {}, $idCounter = 0;
+var $idCounter = 0;
 var $keys = m => { return m ? Object.keys(m) : []; };
 var $flushConsole = () => { };
 var $throwRuntimeError; /* set by package "runtime" */
@@ -74,16 +74,6 @@ if (($global.process !== undefined) && $global.require) {
     }
 }
 var $println = console.log
-
-var $initAllLinknames = () => {
-    var names = $keys($packages);
-    for (var i = 0; i < names.length; i++) {
-        var f = $packages[names[i]]["$initLinknames"];
-        if (typeof f == 'function') {
-            f();
-        }
-    }
-}
 
 var $mapArray = (array, f) => {
     var newArray = new array.constructor(array.length);

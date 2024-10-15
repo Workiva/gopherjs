@@ -7,6 +7,7 @@ package compiler
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
@@ -152,7 +153,7 @@ func WriteProgramCode(pkgs []*Archive, w *SourceMapFilter, goVersion string) err
 	}
 	dceSelection := sel.AliveDecls()
 
-	if _, err := w.Write([]byte("\"use strict\";\n(function() {\n\n")); err != nil {
+	if _, err := w.Write([]byte("\"use strict\";\nvar GopherJSReady = (async function() {\n\n")); err != nil {
 		return err
 	}
 	if _, err := w.Write([]byte(fmt.Sprintf("var $goVersion = %q;\n", goVersion))); err != nil {
@@ -177,9 +178,14 @@ func WriteProgramCode(pkgs []*Archive, w *SourceMapFilter, goVersion string) err
 		}
 	}
 
-	if _, err := w.Write([]byte("$synthesizeMethods();\n$initAllLinknames();\nvar $mainPkg = $packages[\"" + string(mainPkg.ImportPath) + "\"];\n$packages[\"runtime\"].$init();\n$go($mainPkg.$init, []);\n$flushConsole();\n\n}).call(this);\n")); err != nil {
+	if _, err := w.Write([]byte(
+		"$mainPkgName = \"" + string(mainPkg.ImportPath) + "\";\n" +
+			"$mainPkg = await $getPackage($mainPkgName);\n" +
+			"$cacheLookupUrl = \"file:///Users/davewalker/src/go/src/\";" +
+			"}).call(this);\n")); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -193,7 +199,7 @@ func WritePkgCode(pkg *Archive, dceSelection map[*Decl]struct{}, gls goLinknameS
 	if _, err := w.Write(pkg.IncJSCode); err != nil {
 		return err
 	}
-	if _, err := w.Write(removeWhitespace([]byte(fmt.Sprintf("$packages[\"%s\"] = (function() {\n", pkg.ImportPath)), minify)); err != nil {
+	if _, err := w.Write(removeWhitespace([]byte(fmt.Sprintf("$packages[\"%s\"] = await (async function() {\n", pkg.ImportPath)), minify)); err != nil {
 		return err
 	}
 	vars := []string{"$pkg = {}", "$init"}
