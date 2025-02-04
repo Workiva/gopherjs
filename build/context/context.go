@@ -1,4 +1,4 @@
-package build
+package context
 
 import (
 	"fmt"
@@ -13,12 +13,26 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gopherjs/gopherjs/build/packageData"
 	_ "github.com/gopherjs/gopherjs/build/versionhack" // go/build release tags hack.
 	"github.com/gopherjs/gopherjs/compiler"
 	"github.com/gopherjs/gopherjs/compiler/gopherjspkg"
 	"github.com/gopherjs/gopherjs/compiler/natives"
 	"golang.org/x/tools/go/buildutil"
 )
+
+// DefaultGOROOT is the default GOROOT value for builds.
+//
+// It uses the GOPHERJS_GOROOT environment variable if it is set,
+// or else the default GOROOT value of the system Go distribution.
+var DefaultGOROOT = func() string {
+	if goroot, ok := os.LookupEnv("GOPHERJS_GOROOT"); ok {
+		// GopherJS-specific GOROOT value takes precedence.
+		return goroot
+	}
+	// The usual default GOROOT.
+	return build.Default.GOROOT
+}()
 
 // Env contains build environment configuration required to define an instance
 // of XContext.
@@ -60,6 +74,23 @@ func DefaultEnv() Env {
 	return e
 }
 
+// NewBuildContext creates a build context for building Go packages
+// with GopherJS compiler.
+//
+// Core GopherJS packages (i.e., "github.com/gopherjs/gopherjs/js", "github.com/gopherjs/gopherjs/nosync")
+// are loaded from gopherjspkg.FS virtual filesystem if not present in GOPATH or
+// go.mod.
+func NewBuildContext(installSuffix string, buildTags []string) XContext {
+	e := DefaultEnv()
+	e.InstallSuffix = installSuffix
+	e.BuildTags = buildTags
+	realGOROOT := goCtx(e)
+	return &chainedCtx{
+		primary:   realGOROOT,
+		secondary: gopherjsCtx(e),
+	}
+}
+
 // XContext is an extension of go/build.Context with GopherJS-specific features.
 //
 // It abstracts away several different sources GopherJS can load its packages
@@ -67,7 +98,7 @@ func DefaultEnv() Env {
 type XContext interface {
 	// Import returns details about the Go package named by the importPath,
 	// interpreting local import paths relative to the srcDir directory.
-	Import(path string, srcDir string, mode build.ImportMode) (*PackageData, error)
+	Import(path string, srcDir string, mode build.ImportMode) (*packageData.PackageData, error)
 
 	// Env returns build environment configuration this context has been set up for.
 	Env() Env
@@ -85,7 +116,7 @@ type simpleCtx struct {
 }
 
 // Import implements XContext.Import().
-func (sc simpleCtx) Import(importPath string, srcDir string, mode build.ImportMode) (*PackageData, error) {
+func (sc simpleCtx) Import(importPath string, srcDir string, mode build.ImportMode) (*packageData.PackageData, error) {
 	bctx, mode := sc.applyPreloadTweaks(importPath, srcDir, mode)
 	pkg, err := bctx.Import(importPath, srcDir, mode)
 	if err != nil {
@@ -100,12 +131,7 @@ func (sc simpleCtx) Import(importPath string, srcDir string, mode build.ImportMo
 	}
 	pkg = sc.applyPostloadTweaks(pkg)
 
-	return &PackageData{
-		Package:   pkg,
-		IsVirtual: sc.isVirtual,
-		JSFiles:   jsFiles,
-		bctx:      &sc.bctx,
-	}, nil
+	return packageData.NewPackageData(pkg, sc.isVirtual, jsFiles, &sc.bctx), nil
 }
 
 // Match implements XContext.Match.
@@ -270,6 +296,21 @@ func (sc simpleCtx) applyPostloadTweaks(pkg *build.Package) *build.Package {
 	return pkg
 }
 
+// exclude returns files, excluding specified files.
+func exclude(files []string, exclude ...string) []string {
+	var s []string
+Outer:
+	for _, f := range files {
+		for _, e := range exclude {
+			if f == e {
+				continue Outer
+			}
+		}
+		s = append(s, f)
+	}
+	return s
+}
+
 // isStd returns true if the given importPath resolves into a standard library
 // package. Relative paths are interpreted relative to srcDir.
 func (sc simpleCtx) isStd(importPath, srcDir string) bool {
@@ -363,7 +404,7 @@ type chainedCtx struct {
 }
 
 // Import implements buildCtx.Import().
-func (cc chainedCtx) Import(importPath string, srcDir string, mode build.ImportMode) (*PackageData, error) {
+func (cc chainedCtx) Import(importPath string, srcDir string, mode build.ImportMode) (*packageData.PackageData, error) {
 	pkg, err := cc.primary.Import(importPath, srcDir, mode)
 	if err == nil {
 		return pkg, nil
@@ -443,12 +484,12 @@ func updateImports(sources []string, importPos map[string][]token.Position) (new
 
 // jsFilesFromDir finds and loads any *.inc.js packages in the build context
 // directory.
-func jsFilesFromDir(bctx *build.Context, dir string) ([]JSFile, error) {
+func jsFilesFromDir(bctx *build.Context, dir string) ([]packageData.JSFile, error) {
 	files, err := buildutil.ReadDir(bctx, dir)
 	if err != nil {
 		return nil, err
 	}
-	var jsFiles []JSFile
+	var jsFiles []packageData.JSFile
 	for _, file := range files {
 		if !strings.HasSuffix(file.Name(), ".inc.js") || file.IsDir() {
 			continue
@@ -469,7 +510,7 @@ func jsFilesFromDir(bctx *build.Context, dir string) ([]JSFile, error) {
 			return nil, fmt.Errorf("failed to read %s from %v: %w", path, bctx, err)
 		}
 
-		jsFiles = append(jsFiles, JSFile{
+		jsFiles = append(jsFiles, packageData.JSFile{
 			Path:    path,
 			ModTime: file.ModTime(),
 			Content: content,

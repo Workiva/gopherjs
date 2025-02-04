@@ -9,6 +9,8 @@ import (
 	"strconv"
 
 	"github.com/visualfc/goembed"
+
+	"github.com/gopherjs/gopherjs/build/packageData"
 )
 
 func buildIdent(name string) string {
@@ -31,7 +33,7 @@ func __gopherjs_embed_buildFS__(list []struct {
 `
 
 // embedFiles generates an additional source file, which initializes all variables in the package with a go:embed directive.
-func embedFiles(pkg *PackageData, fset *token.FileSet, files []*ast.File) (*ast.File, error) {
+func embedFiles(pkg *packageData.PackageData, fset *token.FileSet, files []*ast.File) (*ast.File, error) {
 	if len(pkg.EmbedPatternPos) == 0 {
 		return nil, nil
 	}
@@ -162,18 +164,4 @@ func embedFiles(pkg *PackageData, fset *token.FileSet, files []*ast.File) (*ast.
 		return nil, err
 	}
 	return f, nil
-}
-
-func joinEmbedPatternPos(m1, m2 map[string][]token.Position) map[string][]token.Position {
-	if len(m1) == 0 && len(m2) == 0 {
-		return nil
-	}
-	m := make(map[string][]token.Position)
-	for k, v := range m1 {
-		m[k] = v
-	}
-	for k, v := range m2 {
-		m[k] = append(m[k], v...)
-	}
-	return m
 }
