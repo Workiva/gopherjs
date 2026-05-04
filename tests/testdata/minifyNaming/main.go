@@ -11,7 +11,6 @@
 // as that type pointer. The duplicate identifiers can then clobber eachother
 // that can lead to trying to call a method for the type pointer on a local
 // variable without that method.
-
 package main
 
 type rng int64

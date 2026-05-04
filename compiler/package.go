@@ -33,7 +33,7 @@ type pkgContext struct {
 	pkgVars map[string]string
 	// varPtrNames is for unexported package-level pointer var names only.
 	// Exported package-level names are always the full name from the Var.
-	// Function-level pointer var names are stored in the function context, not here.
+	// Function-level pointer var names are stored in the funcContext.varPtrNames.
 	varPtrNames  map[*types.Var]string
 	anonTypes    []*types.TypeName
 	anonTypeMap  typeutil.Map
