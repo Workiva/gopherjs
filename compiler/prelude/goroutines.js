@@ -109,8 +109,18 @@ var $callDeferred = (deferred, jsErr, fromPanic) => {
     }
 };
 
+// $panicnil mirrors the runtime's `debug.panicnil` GODEBUG setting.
+// When set to "1" (i.e. `GODEBUG=panicnil=1`), `panic(nil)` keeps the <go1.21
+// behavior of being recoverable as a real `nil`.
+// When "0" (the >=go1.21 default), `panic(nil)` is wrapped into a
+// `*runtime.PanicNilError` so `recover()` returns a non-nil error.
+// The runtime natives overlay (`compiler/natives/src/runtime/runtime.go`) keeps
+// this in sync with the current GODEBUG value at process start and on every
+// `os.Setenv("GODEBUG", ...)` including `t.Setenv` from a test.
+// Go uses a string for this value so we are too.
+var $panicnil = "0";
 var $panic = value => {
-    if (value === $ifaceNil) {
+    if (value === $ifaceNil && $panicnil !== "1") {
         value = $newPanicNilError();
     }
     $curGoroutine.panicStack.push(value);

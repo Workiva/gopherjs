@@ -312,3 +312,22 @@ func TestIssue1106(t *testing.T) {
 		runtime.Gosched()
 	}
 }
+
+func TestPanicNil(t *testing.T) {
+	got := capturePanicNil()
+	if _, ok := got.(*runtime.PanicNilError); !ok {
+		t.Errorf("expected a runtime.PanicNilError but got: %v", got)
+	}
+
+	t.Setenv("GODEBUG", "panicnil=1")
+
+	got = capturePanicNil()
+	if got != nil {
+		t.Errorf("expected a nil but got: %v", got)
+	}
+}
+
+func capturePanicNil() (result any) {
+	defer func() { result = recover() }()
+	panic(nil) //nolint:nilpanic
+}
