@@ -166,8 +166,9 @@ type basicFrame struct {
 }
 
 func callstack(skip, limit int) []basicFrame {
-	skip = skip + 1 /*skip error message*/ + 1 /*skip callstack's own frame*/
-	lines := js.Global.Get("Error").New().Get("stack").Call("split", "\n").Call("slice", skip, skip+limit)
+	// $callstack in prelude.js returns raw frame lines. skip=0 means
+	// "$callstack's direct caller", so +1 skips this wrapper function's call frame.
+	lines := js.Global.Call("$callstack", skip+1, limit)
 	return parseCallstack(lines)
 }
 

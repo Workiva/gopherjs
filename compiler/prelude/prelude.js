@@ -89,6 +89,32 @@ if (($global.process !== undefined) && $global.require) {
 }
 var $println = console.log
 
+// $callstack captures a stack trace, returning the raw frame lines as a JS
+// array of strings. skip=0 means "the direct caller of $callstack"; limit
+// caps the number of frames returned.
+//
+// On V8 (e.g. Node.js, Chrome), it uses `Error.captureStackTrace` with this
+// $callstack's own frame and everything above it (e.g. the "Error" message line)
+// are excluded. `stackTraceLimit` is temporarily clamped to `skip+limit`
+// so we only walk the frames we need.
+// On other engines (e.g. Firefox) it falls back to `new Error().stack`.
+var $callstack = (typeof Error.captureStackTrace === "function")
+    ? function $callstack(skip, limit) {
+        var oldLimit = Error.stackTraceLimit;
+        Error.stackTraceLimit = skip + limit;
+        var target = {};
+        Error.captureStackTrace(target, $callstack);
+        Error.stackTraceLimit = oldLimit;
+        // captureStackTrace excludes $callstack's own frame and above.
+        const start = skip + 1;
+        return target.stack.split("\n").slice(start, start + limit);
+    }
+    : function $callstack(skip, limit) {
+        // +1 for "Error" header line, +1 for $callstack's own frame.
+        const start = skip + 2;
+        return new Error().stack.split("\n").slice(start, start + limit);
+    };
+
 var $callForAllPackages = (methodName) => {
     var names = $keys($packages);
     for (var i = 0; i < names.length; i++) {
