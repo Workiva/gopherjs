@@ -115,6 +115,86 @@ var $callstack = (typeof Error.captureStackTrace === "function")
         return new Error().stack.split("\n").slice(start, start + limit);
     };
 
+// $parseCallFrameFirefox parses a call frame for Firefox. The first time it
+// is run it will compile the regexp then reuse it for all following calls.
+// This should not be called directly but instead call via `$parseCallFrame`.
+var $parseCallFrameFirefox = (info) => {
+    const re = /^([^@]*)@(.*):(\d+):(\d+)$/;
+    $parseCallFrameFirefox = (info) => {
+        const s = (typeof info === "string") ? info : info.toString();
+        var fnName = "<none>", file = "", line = 0, col = 0;
+        const m = re.exec(s);
+        if (m) {
+            fnName = m[1];
+            file   = m[2];
+            line   = parseInt(m[3], 10) || 0;
+            col    = parseInt(m[4], 10) || 0;
+        }
+        return [fnName, file, line, col];
+    };
+    return $parseCallFrameFirefox(info);
+};
+
+// $parseCallFrameChrome parses a call frame for Chrome and Node. The first time
+// it is run it will compile the regexp then reuse it for all following calls.
+// This should not be called directly but instead call via `$parseCallFrame`.
+var $parseCallFrameChrome = (info) => {
+    const aliasRe = /\[as ([^\]]+)\]/;
+    $parseCallFrameChrome = (info) => {
+        const s = (typeof info === "string") ? info : info.toString();
+        var fnName = "<none>", file = "", line = 0, col = 0;
+
+        const openIdx = s.lastIndexOf("(");
+        if (openIdx === -1) {
+            // No-parens form: "at file:line:col"
+            const colSep = s.lastIndexOf(":");
+            const lineSep = s.lastIndexOf(":", colSep - 1);
+            if (lineSep > 0) {
+                file = s.substring(s.indexOf("at ") + 3, lineSep);
+                line = parseInt(s.substring(lineSep + 1, colSep), 10) || 0;
+                col  = parseInt(s.substring(colSep + 1), 10) || 0;
+            }
+            return [fnName, file, line, col];
+        }
+
+        // With-parens form: "at func (file:line:col)"
+        var closeIdx = s.indexOf(")", openIdx);
+        if (closeIdx === -1) closeIdx = s.length;
+        const pos = s.substring(openIdx + 1, closeIdx);
+
+        if (pos === "<anonymous>") {
+            file = "<anonymous>";
+        } else {
+            const c2 = pos.lastIndexOf(":");
+            const c1 = pos.lastIndexOf(":", c2 - 1);
+            if (c1 > 0) {
+                file = pos.substring(0, c1);
+                line = parseInt(pos.substring(c1 + 1, c2), 10) || 0;
+                col = parseInt(pos.substring(c2 + 1), 10) || 0;
+            } else {
+                file = pos;
+            }
+        }
+
+        fnName = s.substring(s.indexOf("at ") + 3, s.indexOf(" ("));
+        const aliasMatch = aliasRe.exec(fnName);
+        if (aliasMatch) fnName = aliasMatch[1]
+        return [fnName, file, line, col];
+    };
+    return $parseCallFrameChrome(info);
+};
+
+// $parseCallFrame parses a single stack-trace line into [funcName, file, line, col].
+// A cheap indexOf("@") check dispatches to the Firefox or Chrome/Node parser.
+// Each parser lazily compiles its regexp on first use and reuses it thereafter.
+var $parseCallFrame = (info) => {
+    var s = (typeof info === "string") ? info : info.toString();
+    if (s.indexOf("@") >= 0) {
+        return $parseCallFrameFirefox(info);
+    }
+    return $parseCallFrameChrome(info);
+};
+
 var $callForAllPackages = (methodName) => {
     var names = $keys($packages);
     for (var i = 0; i < names.length; i++) {

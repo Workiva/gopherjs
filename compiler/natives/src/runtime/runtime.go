@@ -211,56 +211,13 @@ func parseCallstack(lines *js.Object) []basicFrame {
 //
 // TLDR; never use this function!
 func ParseCallFrame(info *js.Object) basicFrame {
-	// FireFox
-	if info.Call("indexOf", "@").Int() >= 0 {
-		split := js.Global.Get("RegExp").New("[@:]")
-		parts := info.Call("split", split)
-		return basicFrame{
-			File:     parts.Call("slice", 1, parts.Length()-2).Call("join", ":").String(),
-			Line:     parts.Index(parts.Length() - 2).Int(),
-			Col:      parts.Index(parts.Length() - 1).Int(),
-			FuncName: parts.Index(0).String(),
-		}
-	}
-
-	// Chrome / Node.js
-	openIdx := info.Call("lastIndexOf", "(").Int()
-	if openIdx == -1 {
-		parts := info.Call("split", ":")
-
-		return basicFrame{
-			File: parts.Call("slice", 0, parts.Length()-2).Call("join", ":").
-				Call("replace", js.Global.Get("RegExp").New(`^\s*at `), "").String(),
-			Line:     parts.Index(parts.Length() - 2).Int(),
-			Col:      parts.Index(parts.Length() - 1).Int(),
-			FuncName: "<none>",
-		}
-	}
-
-	var file, funcName string
-	var line, col int
-
-	pos := info.Call("substring", openIdx+1, info.Call("indexOf", ")").Int())
-	parts := pos.Call("split", ":")
-
-	if pos.String() == "<anonymous>" {
-		file = "<anonymous>"
-	} else {
-		file = parts.Call("slice", 0, parts.Length()-2).Call("join", ":").String()
-		line = parts.Index(parts.Length() - 2).Int()
-		col = parts.Index(parts.Length() - 1).Int()
-	}
-	fn := info.Call("substring", info.Call("indexOf", "at ").Int()+3, info.Call("indexOf", " (").Int())
-	if idx := fn.Call("indexOf", "[as ").Int(); idx > 0 {
-		fn = fn.Call("substring", idx+4, fn.Call("indexOf", "]"))
-	}
-	funcName = fn.String()
-
+	// `$parseCallFrame` in prelude.js parses the call frame. It returns [funcName, file, line, col].
+	result := js.Global.Call("$parseCallFrame", info)
 	return basicFrame{
-		File:     file,
-		Line:     line,
-		Col:      col,
-		FuncName: funcName,
+		FuncName: result.Index(0).String(),
+		File:     result.Index(1).String(),
+		Line:     result.Index(2).Int(),
+		Col:      result.Index(3).Int(),
 	}
 }
 
