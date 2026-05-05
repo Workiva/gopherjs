@@ -17,14 +17,15 @@ import "testing"
 //
 // Here are the measured results from this benchmark (run with Node.js v20.9.0).
 // "before" is the ns/op before any changes were made to optimize `Helper()`.
+// "cST" is the ns/op after adding calls to "captureStackTrace" for V8.
 //
-// | depth |  before |
-// |:-----:|--------:|
-// |   1   |  36,933 |
-// |   3   | 116,012 |
-// |   5   | 209,388 |
-// |   7   | 314,133 |
-// |   9   | 422,581 |
+// | depth |  before |  cST    |
+// |:-----:|--------:|--------:|
+// |   1   |  36,933 |  14,979 |
+// |   3   | 116,012 |  44,007 |
+// |   5   | 209,388 |  78,579 |
+// |   7   | 314,133 | 110,000 |
+// |   9   | 422,581 | 138,506 |
 //
 
 func helper1(tb testing.TB) { tb.Helper() }
