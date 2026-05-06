@@ -2,7 +2,11 @@
 
 package tests
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gopherjs/gopherjs/js"
+)
 
 // `t.Helper()` can slow down tests because it hits the call stack which is also
 // slow. So these benchmarks are to help us improve our call stack throughput.
@@ -54,6 +58,86 @@ func BenchmarkTestingHelper(b *testing.B) {
 		b.Run(tt.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				tt.hndl(b)
+			}
+		})
+	}
+}
+
+type callFrame struct {
+	FuncName string
+	File     string
+	Line     int
+	Col      int
+}
+
+func parseFirefoxFrame(input string) callFrame {
+	result := js.Global.Call("$parseCallFrameFirefox", input)
+	return callFrame{
+		FuncName: result.Index(0).String(),
+		File:     result.Index(1).String(),
+		Line:     result.Index(2).Int(),
+		Col:      result.Index(3).Int(),
+	}
+}
+
+func TestParseCallFrameFirefox(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  callFrame
+	}{
+		{
+			name:  "normal frame",
+			input: "getEvalResult@devtools/stuff/eval-with-debugger.js:231:24",
+			want:  callFrame{FuncName: "getEvalResult", File: "devtools/stuff/eval-with-debugger.js", Line: 231, Col: 24},
+		},
+		{
+			name:  "anonymous function",
+			input: "@filename.js:10:15",
+			want:  callFrame{FuncName: "<none>", File: "filename.js", Line: 10, Col: 15},
+		},
+		{
+			name:  "no column number",
+			input: "foo@bar.js:42",
+			want:  callFrame{FuncName: "foo", File: "bar.js", Line: 42},
+		},
+		{
+			name:  "no line or column",
+			input: "foo@bar.js",
+			want:  callFrame{FuncName: "foo", File: "bar.js"},
+		},
+		{
+			name:  "file with colons in path",
+			input: "baz@http://example.com/script.js:100:5",
+			want:  callFrame{FuncName: "baz", File: "http://example.com/script.js", Line: 100, Col: 5},
+		},
+		{
+			name:  "file colons in path without a column",
+			input: "baz@http://example.com/script.js:100",
+			want:  callFrame{FuncName: "baz", File: "http://example.com/script.js", Line: 100},
+		},
+		{
+			name:  "file colons in path without a line or column",
+			input: "baz@http://example.com/script.js",
+			want:  callFrame{FuncName: "baz", File: "http://example.com/script.js"},
+		},
+		{
+			name:  "resource with colons in path",
+			input: "getEvalResult@resource://devtools/stuff/eval-with-debugger.js:231:24",
+			want:  callFrame{FuncName: "getEvalResult", File: "resource://devtools/stuff/eval-with-debugger.js", Line: 231, Col: 24},
+		},
+		{
+			name:  "anonymous with no line or column",
+			input: "@eval",
+			want:  callFrame{FuncName: "<none>", File: "eval"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseFirefoxFrame(tt.input)
+			if got != tt.want {
+				t.Errorf("parseCallFrameFirefox(%q):\n  got:  %+v\n  want: %+v", tt.input, got, tt.want)
 			}
 		})
 	}

@@ -119,16 +119,16 @@ var $callstack = (typeof Error.captureStackTrace === "function")
 // is run it will compile the regexp then reuse it for all following calls.
 // This should not be called directly but instead call via `$parseCallFrame`.
 var $parseCallFrameFirefox = (info) => {
-    const re = /^([^@]*)@(.*):(\d+):(\d+)$/;
+    const re = /^([^@]*)@(.+?)(?::(\d+)(?::(\d+))?)?$/;
     $parseCallFrameFirefox = (info) => {
         const s = (typeof info === "string") ? info : info.toString();
         var fnName = "<none>", file = "", line = 0, col = 0;
         const m = re.exec(s);
         if (m) {
-            fnName = m[1];
-            file   = m[2];
-            line   = parseInt(m[3], 10) || 0;
-            col    = parseInt(m[4], 10) || 0;
+            fnName = m[1] || "<none>";
+            file   = m[2] || "";
+            line   = (m[3] !== undefined) ? (parseInt(m[3], 10) || 0) : 0;
+            col    = (m[4] !== undefined) ? (parseInt(m[4], 10) || 0) : 0;
         }
         return [fnName, file, line, col];
     };
