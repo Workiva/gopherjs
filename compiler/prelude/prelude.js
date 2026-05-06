@@ -98,22 +98,26 @@ var $println = console.log
 // are excluded. `stackTraceLimit` is temporarily clamped to `skip+limit`
 // so we only walk the frames we need.
 // On other engines (e.g. Firefox) it falls back to `new Error().stack`.
-var $callstack = (typeof Error.captureStackTrace === "function")
-    ? function $callstack(skip, limit) {
-        var oldLimit = Error.stackTraceLimit;
-        Error.stackTraceLimit = skip + limit;
-        var target = {};
-        Error.captureStackTrace(target, $callstack);
-        Error.stackTraceLimit = oldLimit;
-        // captureStackTrace excludes $callstack's own frame and above.
-        const start = skip + 1;
-        return target.stack.split("\n").slice(start, start + limit);
+var $callstack = (() => {
+    if (typeof Error.captureStackTrace === "function") {
+        return function $callstack(skip, limit) {
+            const oldLimit = Error.stackTraceLimit;
+            Error.stackTraceLimit = skip + limit;
+            var target = {};
+            Error.captureStackTrace(target, $callstack);
+            Error.stackTraceLimit = oldLimit;
+            // captureStackTrace excludes $callstack's own frame and above.
+            const start = skip + 1;
+            return target.stack.split("\n").slice(start, start + limit);
+        };
     }
-    : function $callstack(skip, limit) {
+
+    return function $callstack(skip, limit) {
         // +1 for "Error" header line, +1 for $callstack's own frame.
         const start = skip + 2;
         return new Error().stack.split("\n").slice(start, start + limit);
     };
+})();
 
 // $parseCallFrameFirefox parses a call frame for Firefox. The first time it
 // is run it will compile the regexp then reuse it for all following calls.
