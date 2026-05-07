@@ -89,114 +89,123 @@ if (($global.process !== undefined) && $global.require) {
 }
 var $println = console.log
 
-// $callstack captures a stack trace, returning the raw frame lines as a JS
-// array of strings. skip=0 means "the direct caller of $callstack"; limit
-// caps the number of frames returned.
-//
-// On V8 (e.g. Node.js, Chrome), it uses `Error.captureStackTrace` with this
-// $callstack's own frame and everything above it (e.g. the "Error" message line)
-// are excluded. `stackTraceLimit` is temporarily clamped to `skip+limit`
-// so we only walk the frames we need.
-// On other engines (e.g. Firefox) it falls back to `new Error().stack`.
+// $stackIter creates an iterator over a stack trace string, reading one line at
+// a time when invoked. This returns [funcName, file, line, col] from the next
+// line and advances the iterator, or return null if there are no more lines.
+var $stackIter = (stack, pos = 0) => {
+    const stackStr = (typeof stack === "string") ? stack : stack.toString();
+    // readLine will read a line off of a string starting at the given start offset.
+    const readLine = (str, start) => {
+        if (start >= str.length) return "";
+        const nl = str.indexOf("\n", start);
+        return nl === -1 ? str.substring(start) : str.substring(start, nl);
+    };
+    // peek at the first line to determine which parser to use.
+    const useFirefox = readLine(stackStr, 0).indexOf("@") >= 0;
+    const parseFunc = useFirefox ? $parseCallFrameFirefox : $parseCallFrameChrome;
+    return () => {
+        const line = readLine(stackStr, pos);
+        pos = pos + line.lenght + 1
+        return line.length > 0 ? parseFunc(line) : null;
+    };
+};
+
+// $callstack captures a stack trace and returns an iterator with a $next() method.
+// $next() returns [funcName, file, line, col] per frame, or null when done.
+// skip=0 means "the direct caller of $callstack"; limit caps frames captured.
 var $callstack = (() => {
+    // lineOffset will find the offset for a number of lines into the given string.
+    const lineOffset = (str, count) => {
+        var pos = 0;
+        for (var i = 0; i < count && pos < str.length; i++) {
+            const nl = str.indexOf("\n", pos);
+            if (nl === -1) return str.length;
+            pos = nl + 1;
+        }
+        return pos;
+    };
+
     if (typeof Error.captureStackTrace === "function") {
         return function $callstack(skip, limit) {
             const oldLimit = Error.stackTraceLimit;
-            Error.stackTraceLimit = skip + limit;
             var target = {};
-            Error.captureStackTrace(target, $callstack);
-            Error.stackTraceLimit = oldLimit;
-            // captureStackTrace excludes $callstack's own frame and above.
-            const start = skip + 1;
-            return target.stack.split("\n").slice(start, start + limit);
+            try {
+                Error.stackTraceLimit = skip + limit;
+                Error.captureStackTrace(target, $callstack);
+            } finally {
+                Error.stackTraceLimit = oldLimit;
+            }
+            const stack = target.stack;
+            // captureStackTrace excludes it's own frame and above
+            // so we only have to +1 for $callstack's own frame.
+            return $stackIter(stack, lineOffset(stack, skip + 1));
         };
     }
 
     return function $callstack(skip, limit) {
+        const stack = new Error().stack;
         // +1 for "Error" header line, +1 for $callstack's own frame.
-        const start = skip + 2;
-        return new Error().stack.split("\n").slice(start, start + limit);
+        return $stackIter(stack, lineOffset(stack, skip + 2));
     };
 })();
 
-// $parseCallFrameFirefox parses a call frame for Firefox. The first time it
-// is run it will compile the regexp then reuse it for all following calls.
-// This should not be called directly but instead call via `$parseCallFrame`.
-var $parseCallFrameFirefox = (info) => {
+// $parseCallFrameFirefox parses a call frame for Firefox.
+var $parseCallFrameFirefox = (frame) => {
+    // The first time this is called, compile the regexp,
+    // then reuse it for all following calls.
     const re = /^([^@]*)@(.+?)(?::(\d+)(?::(\d+))?)?$/;
-    $parseCallFrameFirefox = (info) => {
-        const s = (typeof info === "string") ? info : info.toString();
+    $parseCallFrameFirefox = (frame) => {
         var fnName = "<none>", file = "", line = 0, col = 0;
-        const m = re.exec(s);
+        const m = re.exec(frame.trim());
         if (m) {
             fnName = m[1] || "<none>";
             file   = m[2] || "";
-            line   = (m[3] !== undefined) ? (parseInt(m[3], 10) || 0) : 0;
-            col    = (m[4] !== undefined) ? (parseInt(m[4], 10) || 0) : 0;
+            line   = parseInt(m[3], 10) || 0;
+            col    = parseInt(m[4], 10) || 0;
         }
         return [fnName, file, line, col];
     };
-    return $parseCallFrameFirefox(info);
+    return $parseCallFrameFirefox(frame);
 };
 
-// $parseCallFrameChrome parses a call frame for Chrome and Node. The first time
-// it is run it will compile the regexp then reuse it for all following calls.
-// This should not be called directly but instead call via `$parseCallFrame`.
-var $parseCallFrameChrome = (info) => {
-    const aliasRe = /\[as ([^\]]+)\]/;
-    $parseCallFrameChrome = (info) => {
-        const s = (typeof info === "string") ? info : info.toString();
-        var fnName = "<none>", file = "", line = 0, col = 0;
-
-        const openIdx = s.lastIndexOf("(");
+// $parseCallFrameChrome parses a call frame for Chrome and Node.js.
+var $parseCallFrameChrome = (frame) => {
+    // The first time this is called, compile the regexp,
+    // then reuse it for all following calls.
+    const posRe = /^(.+?)(?::(\d+)(?::(\d+))?)?$/;
+    const parsePos = (framePos) => {
+        var file = "", line = 0, col = 0;
+        const m = posRe.exec(framePos);
+        if (m) {
+            file = m[1] || "";
+            line = parseInt(m[2], 10) || 0;
+            col  = parseInt(m[3], 10) || 0;
+        }
+        return ["<none>", file, line, col];
+    }
+    $parseCallFrameChrome = (frame) => {
+        frame = frame.substring(frame.indexOf("at ") + 3).trim();
+        const openIdx = frame.lastIndexOf("(");
         if (openIdx === -1) {
             // No-parens form: "at file:line:col"
-            const colSep = s.lastIndexOf(":");
-            const lineSep = s.lastIndexOf(":", colSep - 1);
-            if (lineSep > 0) {
-                file = s.substring(s.indexOf("at ") + 3, lineSep);
-                line = parseInt(s.substring(lineSep + 1, colSep), 10) || 0;
-                col  = parseInt(s.substring(colSep + 1), 10) || 0;
-            }
-            return [fnName, file, line, col];
+            return parsePos(frame);
         }
 
         // With-parens form: "at func (file:line:col)"
-        var closeIdx = s.indexOf(")", openIdx);
-        if (closeIdx === -1) closeIdx = s.length;
-        const pos = s.substring(openIdx + 1, closeIdx);
-
-        if (pos === "<anonymous>") {
-            file = "<anonymous>";
-        } else {
-            const c2 = pos.lastIndexOf(":");
-            const c1 = pos.lastIndexOf(":", c2 - 1);
-            if (c1 > 0) {
-                file = pos.substring(0, c1);
-                line = parseInt(pos.substring(c1 + 1, c2), 10) || 0;
-                col = parseInt(pos.substring(c2 + 1), 10) || 0;
-            } else {
-                file = pos;
-            }
+        var closeIdx = frame.indexOf(")", openIdx);
+        if (closeIdx === -1) closeIdx = frame.length;
+        var result = parsePos(frame.substring(openIdx + 1, closeIdx));
+        var fnName = frame.substring(0, frame.indexOf("(")).trim();
+        const asIdx = fnName.indexOf("[as ");
+        if (asIdx > 0) {
+            var closeIdx = fnName.indexOf("]");
+            if (closeIdx === -1) closeIdx = frame.length;
+            fnName = fnName.substring(asIdx+4, closeIdx).trim();
         }
-
-        fnName = s.substring(s.indexOf("at ") + 3, s.indexOf(" ("));
-        const aliasMatch = aliasRe.exec(fnName);
-        if (aliasMatch) fnName = aliasMatch[1]
-        return [fnName, file, line, col];
+        result[0] = fnName
+        return result;
     };
-    return $parseCallFrameChrome(info);
-};
-
-// $parseCallFrame parses a single stack-trace line into [funcName, file, line, col].
-// A cheap indexOf("@") check dispatches to the Firefox or Chrome/Node parser.
-// Each parser lazily compiles its regexp on first use and reuses it thereafter.
-var $parseCallFrame = (info) => {
-    var s = (typeof info === "string") ? info : info.toString();
-    if (s.indexOf("@") >= 0) {
-        return $parseCallFrameFirefox(info);
-    }
-    return $parseCallFrameChrome(info);
+    return $parseCallFrameChrome(frame);
 };
 
 var $callForAllPackages = (methodName) => {
