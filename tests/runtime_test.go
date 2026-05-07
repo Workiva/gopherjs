@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"fmt"
 	"runtime"
 	"strconv"
 	"strings"
@@ -336,6 +337,57 @@ func BenchmarkTestingHelper(b *testing.B) {
 		b.Run(tt.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				tt.hndl(b)
+			}
+		})
+	}
+}
+
+// `runtime.Callers` can be slow because it has to parts the JS call stacks.
+// This benchmark is to help us improve our call stack throughput.
+//
+// Here are the measured results from this benchmark (run with Node.js v20.9.0).
+// "before" is the ns/op before any changes were made to optimize `Callers`.
+// "after" is the ns/op after changes were made to optimize `Callers`.
+//
+// | depth |  before |   after | %diff |
+// |:-----:|--------:|--------:|------:|
+//
+
+func getCallDeep(deep, skip int, pc []uintptr) int {
+	if deep > 0 {
+		return getCallDeep(deep-1, skip, pc)
+	}
+	return runtime.Callers(skip, pc)
+}
+
+func Benchmark_Callers(b *testing.B) {
+	tests := []struct {
+		deep  int
+		skip  int
+		limit int
+	}{
+		{skip: 0, limit: 0},
+		{skip: 0, limit: 5},
+		{skip: 0, limit: 10},
+		{skip: 0, limit: 15},
+		{skip: 0, limit: 20},
+		{skip: 5, limit: 0},
+		{skip: 5, limit: 5},
+		{skip: 5, limit: 10},
+		{skip: 5, limit: 15},
+		{skip: 10, limit: 0},
+		{skip: 10, limit: 5},
+		{skip: 10, limit: 10},
+	}
+	for _, tt := range tests {
+		if tt.deep <= 0 {
+			tt.deep = 15 // default if not set.
+		}
+		name := fmt.Sprintf("%02d_%02d_%02d", tt.deep, tt.skip, tt.limit)
+		b.Run(name, func(b *testing.B) {
+			pc := make([]uintptr, tt.limit)
+			for i := 0; i < b.N; i++ {
+				getCallDeep(tt.deep, tt.skip, pc)
 			}
 		})
 	}
