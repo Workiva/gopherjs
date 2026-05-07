@@ -105,7 +105,7 @@ var $stackIter = (stack, pos = 0) => {
     const parseFunc = useFirefox ? $parseCallFrameFirefox : $parseCallFrameChrome;
     return () => {
         const line = readLine(stackStr, pos);
-        pos = pos + line.lenght + 1
+        pos = pos + line.length + 1;
         return line.length > 0 ? parseFunc(line) : null;
     };
 };
