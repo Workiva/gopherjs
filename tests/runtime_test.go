@@ -384,8 +384,8 @@ func Benchmark_Callers(b *testing.B) {
 			tt.deep = 15 // default if not set.
 		}
 		name := fmt.Sprintf("%02d_%02d_%02d", tt.deep, tt.skip, tt.limit)
+		pc := make([]uintptr, tt.limit)
 		b.Run(name, func(b *testing.B) {
-			pc := make([]uintptr, tt.limit)
 			for i := 0; i < b.N; i++ {
 				getCallDeep(tt.deep, tt.skip, pc)
 			}
