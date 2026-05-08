@@ -104,28 +104,42 @@ var $callstack = (() => {
         return pos;
     };
 
+    const prepareLines = (stack, skip) => {
+        stack = stack.trim();
+        // TODO(grantnelson-wf): Check for existance of "Error" line and skip++ if one exists (and remove the +1 from below that assumes the "Error" line).
+
+        const start = lineOffset(stack, skip + 1);
+        return stack.substring(start).trim().split("\n");
+    };
+
     if (typeof Error.captureStackTrace === "function") {
         return function $callstack(skip, limit) {
             const oldLimit = Error.stackTraceLimit;
             var target = {};
-            Error.stackTraceLimit = skip + limit;
-            Error.captureStackTrace(target, $callstack);
-            Error.stackTraceLimit = oldLimit;
+            try {
+                Error.stackTraceLimit = skip + limit;
+                Error.captureStackTrace(target, $callstack);
+            } finally {
+                Error.stackTraceLimit = oldLimit;
+            }
             const stack = target.stack;
-            // skip: captureStackTrace excludes it's own frame and
-            // above so we only have to +1 for "Error" header.
-            return stack.substring(lineOffset(stack, skip + 1)).split("\n");
+            // skip: captureStackTrace excludes its own frame and above.
+            return prepareLines(stack, skip);
         };
     }
 
     return function $callstack(skip, limit) {
         const oldLimit = Error.stackTraceLimit;
-        // limit: +1 for $callstack's own frame.
-        Error.stackTraceLimit = skip + limit + 1;
-        const stack = new Error().stack;
-        Error.stackTraceLimit = oldLimit;
-        // skip: +1 for "Error" header line, +1 for $callstack's own frame.
-        return stack.substring(lineOffset(stack, skip + 2)).split("\n");
+        var stack;
+        try {
+            // limit: +1 for $callstack's own frame.
+            Error.stackTraceLimit = skip + limit + 1;
+            stack = new Error().stack;
+        } finally {
+            Error.stackTraceLimit = oldLimit;
+        }
+        // skip: +1 for $callstack's own frame.
+        return prepareLines(stack, skip + 1);
     };
 })();
 

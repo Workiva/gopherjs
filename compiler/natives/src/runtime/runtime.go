@@ -163,13 +163,12 @@ func callstack(skip, limit int) []basicFrame {
 	// of frames so only read as many as needed.
 	// skip+1 skips callstack's own call frame.
 	lines := js.Global.Call("$callstack", skip+1, limit)
-	frames := make([]basicFrame, 0, limit)
+	frames := []basicFrame{}
 	l := min(lines.Length(), limit)
 	for i := 0; i < l; i++ {
 		frame := js.Global.Call("$parseCallFrame", lines.Index(i))
 		funcName := frame.Index(0).String()
 		if hiddenFrames[funcName] {
-			i-- // hidden doesn't count towards the limit
 			continue
 		}
 		if alias, ok := knownFrames[funcName]; ok {
@@ -414,7 +413,7 @@ func FuncForPC(pc uintptr) *Func {
 		//     created without a real caller (record.go's PC field)
 		//   - test/fixedbugs/issue29735.go deliberately walks past the
 		//     end of a function looking for the next. This will cause it to
-		//     not secceed at what it is trying to do but will allow the test to pass.
+		//     not succeed at what it is trying to do but will allow the test to pass.
 		//   - test/fixedbugs/issue58300.go and test/fixedbugs/issue58300b.go give
 		//     FuncForPC a function pointer from `reflect.ValueOf(fn).Pointer()`,
 		//     which is not produced by Caller/Callers and so isn't in our table.
@@ -501,7 +500,7 @@ func godebug_setUpdate(update func(def, env string)) {
 // src/internal/godebug/godebug.go.
 // GOPHERJS: The GopherJS runtime doesn't need this function so we can remove it.
 //
-//gopherjs:puge
+//gopherjs:purge
 func godebug_setNewIncNonDefault(newIncNonDefault func(string) func())
 
 func getEnvString(key string) string {

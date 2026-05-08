@@ -346,20 +346,20 @@ func Benchmark_TestingHelper(b *testing.B) {
 // "before" is the ns/op before any changes were made to optimize `Callers`.
 // "after" is the ns/op after changes were made to optimize `Callers`.
 //
-// | depth | skip | limit |  before |   after | %diff |
-// |------:|-----:|------:|--------:|--------:|------:|
-// |    15 |    0 |     0 |  55,072 |    4676 |  8.49 |
-// |    15 |    0 |     5 |  67,787 |  2,5090 | 37.01 |
-// |    15 |    0 |    10 |  79,737 |  4,3170 | 54.14 |
-// |    15 |    0 |    15 |  90,944 |  6,2425 | 68.64 |
-// |    15 |    0 |    20 | 104,100 |  8,1445 | 78.24 |
-// |    15 |    5 |     0 |  57,681 |  1,3442 | 23.30 |
-// |    15 |    5 |     5 |  70,863 |  3,3484 | 47.25 |
-// |    15 |    5 |    10 |  81,795 |  5,2188 | 63.80 |
-// |    15 |    5 |    15 |  92,862 |  7,2241 | 77.79 |
-// |    15 |   10 |     0 |  58,708 |  2,1957 | 37.40 |
-// |    15 |   10 |     5 |  70,626 |  4,1892 | 59.32 |
-// |    15 |   10 |    10 |  81,228 |  6,1685 | 75.94 |
+// | skip | limit |  before |   after | %diff |
+// |-----:|------:|--------:|--------:|------:|
+// |    0 |     0 |  55,072 |   4,676 |  8.49 |
+// |    0 |     5 |  67,787 |  25,090 | 37.01 |
+// |    0 |    10 |  79,737 |  43,170 | 54.14 |
+// |    0 |    15 |  90,944 |  62,425 | 68.64 |
+// |    0 |    20 | 104,100 |  81,445 | 78.24 |
+// |    5 |     0 |  57,681 |  13,442 | 23.30 |
+// |    5 |     5 |  70,863 |  33,484 | 47.25 |
+// |    5 |    10 |  81,795 |  52,188 | 63.80 |
+// |    5 |    15 |  92,862 |  72,241 | 77.79 |
+// |   10 |     0 |  58,708 |  21,957 | 37.40 |
+// |   10 |     5 |  70,626 |  41,892 | 59.32 |
+// |   10 |    10 |  81,228 |  61,685 | 75.94 |
 //
 
 func getCallDeep(depth, skip int, pc []uintptr) int {
@@ -371,7 +371,6 @@ func getCallDeep(depth, skip int, pc []uintptr) int {
 
 func Benchmark_Callers(b *testing.B) {
 	tests := []struct {
-		depth int
 		skip  int
 		limit int
 	}{
@@ -389,14 +388,12 @@ func Benchmark_Callers(b *testing.B) {
 		{skip: 10, limit: 10},
 	}
 	for _, tt := range tests {
-		if tt.depth <= 0 {
-			tt.depth = 15 // default if not set.
-		}
-		name := fmt.Sprintf("%02d_%02d_%02d", tt.depth, tt.skip, tt.limit)
+		const depth = 15
+		name := fmt.Sprintf("%02d_%02d", tt.skip, tt.limit)
 		pc := make([]uintptr, tt.limit)
 		b.Run(name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				getCallDeep(tt.depth, tt.skip, pc)
+				getCallDeep(depth, tt.skip, pc)
 			}
 		})
 	}
