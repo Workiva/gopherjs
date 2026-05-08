@@ -89,27 +89,8 @@ if (($global.process !== undefined) && $global.require) {
 }
 var $println = console.log
 
-// $stackIter creates an iterator over a stack trace string, reading one line at
-// a time when invoked. This returns [funcName, file, line, col] from the next
-// line and advances the iterator, or returns null if there are no more lines.
-var $stackIter = (stack, pos = 0) => {
-    const stackStr = (typeof stack === "string") ? stack : stack.toString();
-    return () => {
-        if (pos >= stackStr.length) return null;
-        const nl = stackStr.indexOf("\n", pos);
-        if (nl === -1) {
-            const line = stackStr.substring(pos);
-            pos = stackStr.length;
-            return $parseCallFrame(line);
-        }
-        const line = stackStr.substring(pos, nl);
-        pos = nl + 1;
-        return $parseCallFrame(line);
-    };
-};
-
-// $callstack captures a stack trace and returns an iterator with a $next() method.
-// $next() returns [funcName, file, line, col] per frame, or null when done.
+// $callstack captures a stack trace and returns a list of lines, typically
+// there will be "limit" numbers of lines returned.
 // skip=0 means "the direct caller of $callstack"; limit caps frames captured.
 var $callstack = (() => {
     // lineOffset will find the offset for a number of lines into the given string.
@@ -131,10 +112,9 @@ var $callstack = (() => {
             Error.captureStackTrace(target, $callstack);
             Error.stackTraceLimit = oldLimit;
             const stack = target.stack;
-
             // skip: captureStackTrace excludes it's own frame and
             // above so we only have to +1 for "Error" header.
-            return $stackIter(stack, lineOffset(stack, skip + 1));
+            return stack.substring(lineOffset(stack, skip + 1)).split("\n");
         };
     }
 
@@ -145,7 +125,7 @@ var $callstack = (() => {
         const stack = new Error().stack;
         Error.stackTraceLimit = oldLimit;
         // skip: +1 for "Error" header line, +1 for $callstack's own frame.
-        return $stackIter(stack, lineOffset(stack, skip + 2));  
+        return stack.substring(lineOffset(stack, skip + 2)).split("\n");
     };
 })();
 
@@ -169,7 +149,7 @@ var $parseCallFrame = (frame) => {
         // FireFox
         const atIdx = frame.indexOf("@")
         if (atIdx >= 0) {
-            const fnName = frame.substring(0, atIdx);
+            const fnName = frame.substring(0, atIdx) || "<none>";
             return parsePos(fnName, frame.substring(atIdx + 1));
         }
 
@@ -189,6 +169,7 @@ var $parseCallFrame = (frame) => {
             if (closeIdx === -1) closeIdx = fnName.length;
             fnName = fnName.substring(asIdx+4, closeIdx).trim();
         }
+
         var closeIdx = frame.indexOf(")", openIdx);
         if (closeIdx === -1) closeIdx = frame.length;
         return parsePos(fnName, frame.substring(openIdx + 1, closeIdx));

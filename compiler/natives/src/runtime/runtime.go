@@ -162,13 +162,11 @@ func callstack(skip, limit int) []basicFrame {
 	// The returned stack reader may be able to return more than limit number
 	// of frames so only read as many as needed.
 	// skip+1 skips callstack's own call frame.
-	stackIter := js.Global.Call("$callstack", skip+1, limit)
+	lines := js.Global.Call("$callstack", skip+1, limit)
 	frames := make([]basicFrame, 0, limit)
-	for i := 0; i < limit; i++ {
-		frame := stackIter.Invoke()
-		if frame == nil || frame == js.Undefined {
-			break // ran out of frames to read
-		}
+	l := min(lines.Length(), limit)
+	for i := 0; i < l; i++ {
+		frame := js.Global.Call("$parseCallFrame", lines.Index(i))
 		funcName := frame.Index(0).String()
 		if hiddenFrames[funcName] {
 			i-- // hidden doesn't count towards the limit

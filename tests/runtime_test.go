@@ -22,22 +22,6 @@ type callFrame struct { // same as runtime.basicFrame
 	Col      int
 }
 
-// parseCallFrame creates a stack iterator for the given string then
-// reads the first line off of it, parses that line, and returns the result.
-// This is very similar to how `callstack` parses several frames in a stack.
-func parseCallFrame(input string) callFrame {
-	frame := js.Global.Call("$stackIter", input).Invoke()
-	if frame == nil || frame == js.Undefined {
-		return callFrame{} // no frame could be read
-	}
-	return callFrame{
-		FuncName: frame.Index(0).String(),
-		File:     frame.Index(1).String(),
-		Line:     frame.Index(2).Int(),
-		Col:      frame.Index(3).Int(),
-	}
-}
-
 func Test_parseCallFrame(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -84,11 +68,69 @@ func Test_parseCallFrame(t *testing.T) {
 			input: "getEvalResult@resource://devtools/server/actors/webconsole/eval-with-debugger.js:231:24",
 			want:  callFrame{FuncName: "getEvalResult", File: "resource://devtools/server/actors/webconsole/eval-with-debugger.js", Line: 231, Col: 24},
 		},
+		{
+			name:  "Firefox anonymous function",
+			input: "@filename.js:10:15",
+			want:  callFrame{FuncName: "<none>", File: "filename.js", Line: 10, Col: 15},
+		},
+		{
+			name:  "Firefox no column number",
+			input: "foo@bar.js:42",
+			want:  callFrame{FuncName: "foo", File: "bar.js", Line: 42},
+		},
+		{
+			name:  "Firefox no line or column",
+			input: "foo@bar.js",
+			want:  callFrame{FuncName: "foo", File: "bar.js"},
+		},
+		{
+			name:  "Firefox file with colons in path",
+			input: "baz@http://example.com/script.js:100:5",
+			want:  callFrame{FuncName: "baz", File: "http://example.com/script.js", Line: 100, Col: 5},
+		},
+		{
+			name:  "Firefox file colons in path without a column",
+			input: "baz@http://example.com/script.js:100",
+			want:  callFrame{FuncName: "baz", File: "http://example.com/script.js", Line: 100},
+		},
+		{
+			name:  "Firefox file colons in path without a line or column",
+			input: "baz@http://example.com/script.js",
+			want:  callFrame{FuncName: "baz", File: "http://example.com/script.js"},
+		},
+		{
+			name:  "Firefox anonymous function with no line or column",
+			input: "@eval",
+			want:  callFrame{FuncName: "<none>", File: "eval"},
+		},
+		{
+			name:  "Chrome frame with parens",
+			input: "    at Script.runInThisContext (vm.js:120:18)",
+			want:  callFrame{FuncName: "Script.runInThisContext", File: "vm.js", Line: 120, Col: 18},
+		},
+		{
+			name:  "Chrome aliased function",
+			input: "at REPLServer.runBound [as eval] (domain.js:440:12)",
+			want:  callFrame{FuncName: "eval", File: "domain.js", Line: 440, Col: 12},
+		},
+		{
+			name:  "Chrome file location only, no function",
+			input: "at https://example.com/angular.min.js:31:225",
+			want:  callFrame{FuncName: "<none>", File: "https://example.com/angular.min.js", Line: 31, Col: 225},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := parseCallFrame(tt.input); got != tt.want {
+			line := js.Global.Get("String").New(tt.input)
+			frame := js.Global.Call("$parseCallFrame", line)
+			got := callFrame{
+				FuncName: frame.Index(0).String(),
+				File:     frame.Index(1).String(),
+				Line:     frame.Index(2).Int(),
+				Col:      frame.Index(3).Int(),
+			}
+			if got != tt.want {
 				t.Errorf("Unexpected result:\n\tgot:  %+v\n\twant: %+v", got, tt.want)
 			}
 		})
