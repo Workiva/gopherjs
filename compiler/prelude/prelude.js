@@ -105,11 +105,17 @@ var $callstack = (() => {
     };
 
     const prepareLines = (stack, skip) => {
+        // Drop any tailing "\n" (and any trailing space before first "at " if there is one).
         stack = stack.trim();
-        // TODO(grantnelson-wf): Check for existance of "Error" line and skip++ if one exists (and remove the +1 from below that assumes the "Error" line).
-
-        const start = lineOffset(stack, skip + 1);
-        return stack.substring(start).trim().split("\n");
+        // V8 prepends an "Error" or "Error: msg" header line that isn't a frame.
+        // Firefox and Safari do not. Detect by checking for "@" or starts with "at ".
+        const firstNl = stack.indexOf("\n");
+        const firstLine = firstNl === -1 ? stack : stack.substring(0, firstNl);
+        if (!firstLine.includes("@") && !firstLine.startsWith("at ")) {
+            skip++; // skip "Error" header line.
+        }
+        const start = lineOffset(stack, skip);
+        return stack.substring(start).split("\n");
     };
 
     if (typeof Error.captureStackTrace === "function") {
@@ -168,7 +174,8 @@ var $parseCallFrame = (frame) => {
         }
 
 	    // Chrome / Node.js
-        frame = frame.slice(frame.indexOf("at ") + 3);
+        const atLeadIdx = frame.indexOf("at ");
+        if (atLeadIdx >= 0) frame = frame.substring(atLeadIdx + 3);
         const openIdx = frame.lastIndexOf("(");
         if (openIdx === -1) {
             // No-parens form: "at file:line:col"
