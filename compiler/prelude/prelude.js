@@ -105,17 +105,24 @@ var $callstack = (() => {
     };
 
     const prepareLines = (stack, skip) => {
+        // If `new Error().stack` doesn't exist like on older IE versions
+        // or something went wrong getting the stack, just return empty.
+        if (!stack) return [];
         // Drop any tailing "\n" (and any trailing space before first "at " if there is one).
         stack = stack.trim();
         // V8 prepends an "Error" or "Error: msg" header line that isn't a frame.
         // Firefox and Safari do not. Detect by checking for "@" or starts with "at ".
+        // This check could still be wrong if the Error message itself has an "@" in it,
+        // (e.g. `new Error("a@b")`), however since we are calling `new Error().stack`
+        // it should be fine.
         const firstNl = stack.indexOf("\n");
         const firstLine = firstNl === -1 ? stack : stack.substring(0, firstNl);
         if (!firstLine.includes("@") && !firstLine.startsWith("at ")) {
             skip++; // skip "Error" header line.
         }
         const start = lineOffset(stack, skip);
-        return stack.substring(start).split("\n");
+        stack = stack.substring(start);
+        return stack === "" ? [] : stack.split("\n");
     };
 
     if (typeof Error.captureStackTrace === "function") {
