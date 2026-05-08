@@ -91,22 +91,20 @@ var $println = console.log
 
 // $stackIter creates an iterator over a stack trace string, reading one line at
 // a time when invoked. This returns [funcName, file, line, col] from the next
-// line and advances the iterator, or return null if there are no more lines.
+// line and advances the iterator, or returns null if there are no more lines.
 var $stackIter = (stack, pos = 0) => {
     const stackStr = (typeof stack === "string") ? stack : stack.toString();
-    // readLine will read a line off of a string starting at the given start offset.
-    const readLine = (str, start) => {
-        if (start >= str.length) return "";
-        const nl = str.indexOf("\n", start);
-        return nl === -1 ? str.substring(start) : str.substring(start, nl);
-    };
-    // peek at the first line to determine which parser to use.
-    const useFirefox = readLine(stackStr, 0).indexOf("@") >= 0;
-    const parseFunc = useFirefox ? $parseCallFrameFirefox : $parseCallFrameChrome;
     return () => {
-        const line = readLine(stackStr, pos);
-        pos = pos + line.length + 1;
-        return line.length > 0 ? parseFunc(line) : null;
+        if (pos >= stackStr.length) return null;
+        const nl = stackStr.indexOf("\n", pos);
+        if (nl === -1) {
+            const line = stackStr.substring(pos);
+            pos = stackStr.length;
+            return $parseCallFrame(line);
+        }
+        const line = stackStr.substring(pos, nl);
+        pos = nl + 1;
+        return $parseCallFrame(line);
     };
 };
 
@@ -129,51 +127,35 @@ var $callstack = (() => {
         return function $callstack(skip, limit) {
             const oldLimit = Error.stackTraceLimit;
             var target = {};
-            try {
-                Error.stackTraceLimit = skip + limit;
-                Error.captureStackTrace(target, $callstack);
-            } finally {
-                Error.stackTraceLimit = oldLimit;
-            }
+            Error.stackTraceLimit = skip + limit;
+            Error.captureStackTrace(target, $callstack);
+            Error.stackTraceLimit = oldLimit;
             const stack = target.stack;
-            // captureStackTrace excludes it's own frame and above
-            // so we only have to +1 for $callstack's own frame.
+
+            // skip: captureStackTrace excludes it's own frame and
+            // above so we only have to +1 for "Error" header.
             return $stackIter(stack, lineOffset(stack, skip + 1));
         };
     }
 
     return function $callstack(skip, limit) {
+        const oldLimit = Error.stackTraceLimit;
+        // limit: +1 for $callstack's own frame.
+        Error.stackTraceLimit = skip + limit + 1;
         const stack = new Error().stack;
-        // +1 for "Error" header line, +1 for $callstack's own frame.
-        return $stackIter(stack, lineOffset(stack, skip + 2));
+        Error.stackTraceLimit = oldLimit;
+        // skip: +1 for "Error" header line, +1 for $callstack's own frame.
+        return $stackIter(stack, lineOffset(stack, skip + 2));  
     };
 })();
 
-// $parseCallFrameFirefox parses a call frame for Firefox.
-var $parseCallFrameFirefox = (frame) => {
-    // The first time this is called, compile the regexp,
-    // then reuse it for all following calls.
-    const re = /^([^@]*)@(.+?)(?::(\d+)(?::(\d+))?)?$/;
-    $parseCallFrameFirefox = (frame) => {
-        var fnName = "<none>", file = "", line = 0, col = 0;
-        const m = re.exec(frame.trim());
-        if (m) {
-            fnName = m[1] || "<none>";
-            file   = m[2] || "";
-            line   = parseInt(m[3], 10) || 0;
-            col    = parseInt(m[4], 10) || 0;
-        }
-        return [fnName, file, line, col];
-    };
-    return $parseCallFrameFirefox(frame);
-};
-
-// $parseCallFrameChrome parses a call frame for Chrome and Node.js.
-var $parseCallFrameChrome = (frame) => {
+// $parseCallFrame parses a call frame string and
+// returns the tuple [funcName, file, line, col].
+var $parseCallFrame = (frame) => {
     // The first time this is called, compile the regexp,
     // then reuse it for all following calls.
     const posRe = /^(.+?)(?::(\d+)(?::(\d+))?)?$/;
-    const parsePos = (framePos) => {
+    const parsePos = (fnName, framePos) => {
         var file = "", line = 0, col = 0;
         const m = posRe.exec(framePos);
         if (m) {
@@ -181,31 +163,37 @@ var $parseCallFrameChrome = (frame) => {
             line = parseInt(m[2], 10) || 0;
             col  = parseInt(m[3], 10) || 0;
         }
-        return ["<none>", file, line, col];
+        return [fnName, file, line, col];
     }
-    $parseCallFrameChrome = (frame) => {
-        frame = frame.substring(frame.indexOf("at ") + 3).trim();
+    $parseCallFrame = (frame) => {
+        // FireFox
+        const atIdx = frame.indexOf("@")
+        if (atIdx >= 0) {
+            const fnName = frame.substring(0, atIdx);
+            return parsePos(fnName, frame.substring(atIdx + 1));
+        }
+
+	    // Chrome / Node.js
+        frame = frame.slice(frame.indexOf("at ") + 3);
         const openIdx = frame.lastIndexOf("(");
         if (openIdx === -1) {
             // No-parens form: "at file:line:col"
-            return parsePos(frame);
+            return parsePos("<none>", frame);
         }
 
         // With-parens form: "at func (file:line:col)"
-        var closeIdx = frame.indexOf(")", openIdx);
-        if (closeIdx === -1) closeIdx = frame.length;
-        var result = parsePos(frame.substring(openIdx + 1, closeIdx));
         var fnName = frame.substring(0, frame.indexOf("(")).trim();
         const asIdx = fnName.indexOf("[as ");
         if (asIdx > 0) {
             var closeIdx = fnName.indexOf("]");
-            if (closeIdx === -1) closeIdx = frame.length;
+            if (closeIdx === -1) closeIdx = fnName.length;
             fnName = fnName.substring(asIdx+4, closeIdx).trim();
         }
-        result[0] = fnName
-        return result;
+        var closeIdx = frame.indexOf(")", openIdx);
+        if (closeIdx === -1) closeIdx = frame.length;
+        return parsePos(fnName, frame.substring(openIdx + 1, closeIdx));
     };
-    return $parseCallFrameChrome(frame);
+    return $parseCallFrame(frame);
 };
 
 var $callForAllPackages = (methodName) => {
