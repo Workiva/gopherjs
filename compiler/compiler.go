@@ -128,7 +128,7 @@ func DefaultFilter(w io.Writer) *sourcemapx.Filter {
 	return &sourcemapx.Filter{Writer: w}
 }
 
-func WriteProgramCode(pkgs []*Archive, w *sourcemapx.Filter, goVersion string) error {
+func WriteProgramCode(pkgs []*Archive, w *sourcemapx.Filter, goVersion, testBinary string) error {
 	mainPkg := pkgs[len(pkgs)-1]
 	minify := mainPkg.Minified
 
@@ -158,6 +158,9 @@ func WriteProgramCode(pkgs []*Archive, w *sourcemapx.Filter, goVersion string) e
 		return err
 	}
 	if _, err := writeF(w, false, "var $goVersion = %q;\n", goVersion); err != nil {
+		return err
+	}
+	if _, err := writeF(w, false, "var $testBinary = %q;\n", testBinary); err != nil {
 		return err
 	}
 	for _, preludeFile := range prelude.PreludeFiles() {
