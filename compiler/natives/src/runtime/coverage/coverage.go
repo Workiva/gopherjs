@@ -10,7 +10,7 @@ import "internal/coverage/rtcov"
 // for the coverage instrumentation to write the coverage data into.
 // We don't support runtime coverage yet so instead of implementing
 // our own coverage blobs, we can simply return empty for these.
-// That will cause the callers to beleive no blobs are registered so no
+// That will cause the callers to believe no blobs are registered so no
 // coverage is being collected.
 
 //gopherjs:replace
