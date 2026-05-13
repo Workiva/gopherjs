@@ -717,7 +717,7 @@ func (fs serveCommandFileSystem) Open(requestName string) (http.File, error) {
 						Error(`Failed to import dependencies`)
 					return err
 				}
-				if err := compiler.WriteProgramCode(deps, sourceMapFilter, s.GoRelease()); err != nil {
+				if err := compiler.WriteProgramCode(deps, sourceMapFilter, s.GoRelease(), s.TestBinary()); err != nil {
 					log.WithField(`request`, requestName).
 						WithField(`package`, pkg.ImportPath).
 						WithError(err).
