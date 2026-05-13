@@ -128,31 +128,23 @@ var (
 	// PC=0 as "no caller available" (see e.g. log/slog.Record.PC), and packages
 	// using PCs, initialize a uintptr to zero and expect runtime.CallersFrames
 	// and runtime.FuncForPC to treat it as unknown.
-	knownPositions   = map[string]uintptr{}
+	knownPositions   = map[basicFrame]uintptr{}
 	positionCounters = []*Func{nil}
 )
 
-func registerPosition(funcName string, file string, line int, col int) uintptr {
-	key := file + ":" + itoa(line) + ":" + itoa(col)
-	if pc, found := knownPositions[key]; found {
+func registerPosition(frame basicFrame) uintptr {
+	if pc, found := knownPositions[frame]; found {
 		return pc
 	}
 	f := &Func{
-		name: funcName,
-		file: file,
-		line: line,
+		name: frame.FuncName,
+		file: frame.File,
+		line: frame.Line,
 	}
 	pc := uintptr(len(positionCounters))
 	positionCounters = append(positionCounters, f)
-	knownPositions[key] = pc
+	knownPositions[frame] = pc
 	return pc
-}
-
-// itoa converts an integer to a string.
-//
-// Can't use strconv.Itoa() in the `runtime` package due to a cyclic dependency.
-func itoa(i int) string {
-	return js.Global.Get("String").New(i).String()
 }
 
 // basicFrame contains stack trace information extracted from JS stack trace.
@@ -164,9 +156,33 @@ type basicFrame struct {
 }
 
 func callstack(skip, limit int) []basicFrame {
-	skip = skip + 1 /*skip error message*/ + 1 /*skip callstack's own frame*/
-	lines := js.Global.Get("Error").New().Get("stack").Call("split", "\n").Call("slice", skip, skip+limit)
-	return parseCallstack(lines)
+	// $callstack in prelude.js returns an iterator function.
+	// The returned stack reader may be able to return more than limit number
+	// of frames so only read as many as needed.
+	// skip+1 skips callstack's own call frame.
+	lines := js.Global.Call("$callstack", skip+1, limit)
+	frames := []basicFrame{}
+	l := min(lines.Length(), limit)
+	for i := 0; i < l; i++ {
+		frame := js.Global.Call("$parseCallFrame", lines.Index(i))
+		funcName := frame.Index(0).String()
+		if hiddenFrames[funcName] {
+			continue
+		}
+		if alias, ok := knownFrames[funcName]; ok {
+			funcName = alias
+		}
+		frames = append(frames, basicFrame{
+			FuncName: funcName,
+			File:     frame.Index(1).String(),
+			Line:     frame.Index(2).Int(),
+			Col:      frame.Index(3).Int(),
+		})
+		if funcName == "runtime.goexit" {
+			break // We've reached the bottom of the goroutine stack.
+		}
+	}
+	return frames
 }
 
 var (
@@ -185,90 +201,15 @@ var (
 	}
 )
 
-func parseCallstack(lines *js.Object) []basicFrame {
-	frames := []basicFrame{}
-	l := lines.Length()
-	for i := 0; i < l; i++ {
-		frame := ParseCallFrame(lines.Index(i))
-		if hiddenFrames[frame.FuncName] {
-			continue
-		}
-		if alias, ok := knownFrames[frame.FuncName]; ok {
-			frame.FuncName = alias
-		}
-		frames = append(frames, frame)
-		if frame.FuncName == "runtime.goexit" {
-			break // We've reached the bottom of the goroutine stack.
-		}
-	}
-	return frames
-}
-
-// ParseCallFrame is exported for the sake of testing. See this discussion for context https://github.com/gopherjs/gopherjs/pull/1097/files/561e6381406f04ccb8e04ef4effedc5c7887b70f#r776063799
-//
-// TLDR; never use this function!
-func ParseCallFrame(info *js.Object) basicFrame {
-	// FireFox
-	if info.Call("indexOf", "@").Int() >= 0 {
-		split := js.Global.Get("RegExp").New("[@:]")
-		parts := info.Call("split", split)
-		return basicFrame{
-			File:     parts.Call("slice", 1, parts.Length()-2).Call("join", ":").String(),
-			Line:     parts.Index(parts.Length() - 2).Int(),
-			Col:      parts.Index(parts.Length() - 1).Int(),
-			FuncName: parts.Index(0).String(),
-		}
-	}
-
-	// Chrome / Node.js
-	openIdx := info.Call("lastIndexOf", "(").Int()
-	if openIdx == -1 {
-		parts := info.Call("split", ":")
-
-		return basicFrame{
-			File: parts.Call("slice", 0, parts.Length()-2).Call("join", ":").
-				Call("replace", js.Global.Get("RegExp").New(`^\s*at `), "").String(),
-			Line:     parts.Index(parts.Length() - 2).Int(),
-			Col:      parts.Index(parts.Length() - 1).Int(),
-			FuncName: "<none>",
-		}
-	}
-
-	var file, funcName string
-	var line, col int
-
-	pos := info.Call("substring", openIdx+1, info.Call("indexOf", ")").Int())
-	parts := pos.Call("split", ":")
-
-	if pos.String() == "<anonymous>" {
-		file = "<anonymous>"
-	} else {
-		file = parts.Call("slice", 0, parts.Length()-2).Call("join", ":").String()
-		line = parts.Index(parts.Length() - 2).Int()
-		col = parts.Index(parts.Length() - 1).Int()
-	}
-	fn := info.Call("substring", info.Call("indexOf", "at ").Int()+3, info.Call("indexOf", " (").Int())
-	if idx := fn.Call("indexOf", "[as ").Int(); idx > 0 {
-		fn = fn.Call("substring", idx+4, fn.Call("indexOf", "]"))
-	}
-	funcName = fn.String()
-
-	return basicFrame{
-		File:     file,
-		Line:     line,
-		Col:      col,
-		FuncName: funcName,
-	}
-}
-
 func Caller(skip int) (pc uintptr, file string, line int, ok bool) {
 	skip = skip + 1 /*skip Caller's own frame*/
 	frames := callstack(skip, 1)
 	if len(frames) != 1 {
 		return 0, "", 0, false
 	}
-	pc = registerPosition(frames[0].FuncName, frames[0].File, frames[0].Line, frames[0].Col)
-	return pc, frames[0].File, frames[0].Line, true
+	frame := frames[0]
+	pc = registerPosition(frame)
+	return pc, frame.File, frame.Line, true
 }
 
 // Callers fills the slice pc with the return program counters of function
@@ -291,7 +232,7 @@ func Caller(skip int) (pc uintptr, file string, line int, ok bool) {
 func Callers(skip int, pc []uintptr) int {
 	frames := callstack(skip, len(pc))
 	for i, frame := range frames {
-		pc[i] = registerPosition(frame.FuncName, frame.File, frame.Line, frame.Col)
+		pc[i] = registerPosition(frame)
 	}
 	return len(frames)
 }
@@ -306,7 +247,7 @@ func Callers(skip int, pc []uintptr) int {
 //     For those, FuncForPC returns nil and we emit a Frame with the original PC
 //     and empty symbol fields, like Go will.
 //   - GopherJS's internal frames such as $callDeferred and $goroutine were
-//     already filtered (or aliased) by parseCallstack at capture time, so anything
+//     already filtered (or aliased) by callstack at capture time, so anything
 //     reaching CallersFrames is either a real Go frame or a PC we can't resolve.
 func CallersFrames(callers []uintptr) *Frames {
 	result := Frames{}
@@ -470,7 +411,7 @@ func FuncForPC(pc uintptr) *Func {
 		//     created without a real caller (record.go's PC field)
 		//   - test/fixedbugs/issue29735.go deliberately walks past the
 		//     end of a function looking for the next. This will cause it to
-		//     not secceed at what it is trying to do but will allow the test to pass.
+		//     not succeed at what it is trying to do but will allow the test to pass.
 		//   - test/fixedbugs/issue58300.go and test/fixedbugs/issue58300b.go give
 		//     FuncForPC a function pointer from `reflect.ValueOf(fn).Pointer()`,
 		//     which is not produced by Caller/Callers and so isn't in our table.

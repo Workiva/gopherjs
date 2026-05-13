@@ -15,61 +15,123 @@ import (
 	"github.com/gopherjs/gopherjs/js"
 )
 
+type callFrame struct { // same as runtime.basicFrame
+	FuncName string
+	File     string
+	Line     int
+	Col      int
+}
+
 func Test_parseCallFrame(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		want  string
+		want  callFrame
 	}{
 		{
 			name:  "Chrome 96.0.4664.110 on Linux #1",
 			input: "at foo (eval at $b (https://gopherjs.github.io/playground/playground.js:102:11836), <anonymous>:25887:60)",
-			want:  "foo https://gopherjs.github.io/playground/playground.js 102 11836",
+			want:  callFrame{FuncName: "foo", File: "https://gopherjs.github.io/playground/playground.js", Line: 102, Col: 11836},
 		},
 		{
 			name:  "Chrome 96, anonymous eval",
 			input: "	at eval (<anonymous>)",
-			want:  "eval <anonymous> 0 0",
+			want:  callFrame{FuncName: "eval", File: "<anonymous>"},
 		},
 		{
 			name:  "Chrome 96, anonymous Array.forEach",
 			input: "	at Array.forEach (<anonymous>)",
-			want:  "Array.forEach <anonymous> 0 0",
+			want:  callFrame{FuncName: "Array.forEach", File: "<anonymous>"},
 		},
 		{
 			name:  "Chrome 96, file location only",
 			input: "at https://ajax.googleapis.com/ajax/libs/angularjs/1.2.18/angular.min.js:31:225",
-			want:  "<none> https://ajax.googleapis.com/ajax/libs/angularjs/1.2.18/angular.min.js 31 225",
+			want:  callFrame{FuncName: "<none>", File: "https://ajax.googleapis.com/ajax/libs/angularjs/1.2.18/angular.min.js", Line: 31, Col: 225},
 		},
 		{
 			name:  "Chrome 96, aliased function",
 			input: "at k.e.$externalizeWrapper.e.$externalizeWrapper [as run] (https://gopherjs.github.io/playground/playground.js:5:30547)",
-			want:  "run https://gopherjs.github.io/playground/playground.js 5 30547",
+			want:  callFrame{FuncName: "run", File: "https://gopherjs.github.io/playground/playground.js", Line: 5, Col: 30547},
 		},
 		{
 			name:  "Node.js v12.22.5",
 			input: "    at Script.runInThisContext (vm.js:120:18)",
-			want:  "Script.runInThisContext vm.js 120 18",
+			want:  callFrame{FuncName: "Script.runInThisContext", File: "vm.js", Line: 120, Col: 18},
 		},
 		{
 			name:  "Node.js v12.22.5, aliased function",
 			input: "at REPLServer.runBound [as eval] (domain.js:440:12)",
-			want:  "eval domain.js 440 12",
+			want:  callFrame{FuncName: "eval", File: "domain.js", Line: 440, Col: 12},
 		},
 		{
 			name:  "Firefox 78.15.0esr Linux",
 			input: "getEvalResult@resource://devtools/server/actors/webconsole/eval-with-debugger.js:231:24",
-			want:  "getEvalResult resource://devtools/server/actors/webconsole/eval-with-debugger.js 231 24",
+			want:  callFrame{FuncName: "getEvalResult", File: "resource://devtools/server/actors/webconsole/eval-with-debugger.js", Line: 231, Col: 24},
+		},
+		{
+			name:  "Firefox anonymous function",
+			input: "@filename.js:10:15",
+			want:  callFrame{FuncName: "<none>", File: "filename.js", Line: 10, Col: 15},
+		},
+		{
+			name:  "Firefox no column number",
+			input: "foo@bar.js:42",
+			want:  callFrame{FuncName: "foo", File: "bar.js", Line: 42},
+		},
+		{
+			name:  "Firefox no line or column",
+			input: "foo@bar.js",
+			want:  callFrame{FuncName: "foo", File: "bar.js"},
+		},
+		{
+			name:  "Firefox file with colons in path",
+			input: "baz@http://example.com/script.js:100:5",
+			want:  callFrame{FuncName: "baz", File: "http://example.com/script.js", Line: 100, Col: 5},
+		},
+		{
+			name:  "Firefox file colons in path without a column",
+			input: "baz@http://example.com/script.js:100",
+			want:  callFrame{FuncName: "baz", File: "http://example.com/script.js", Line: 100},
+		},
+		{
+			name:  "Firefox file colons in path without a line or column",
+			input: "baz@http://example.com/script.js",
+			want:  callFrame{FuncName: "baz", File: "http://example.com/script.js"},
+		},
+		{
+			name:  "Firefox anonymous function with no line or column",
+			input: "@eval",
+			want:  callFrame{FuncName: "<none>", File: "eval"},
+		},
+		{
+			name:  "Chrome frame with parens",
+			input: "    at Script.runInThisContext (vm.js:120:18)",
+			want:  callFrame{FuncName: "Script.runInThisContext", File: "vm.js", Line: 120, Col: 18},
+		},
+		{
+			name:  "Chrome aliased function",
+			input: "at REPLServer.runBound [as eval] (domain.js:440:12)",
+			want:  callFrame{FuncName: "eval", File: "domain.js", Line: 440, Col: 12},
+		},
+		{
+			name:  "Chrome file location only, no function",
+			input: "at https://example.com/angular.min.js:31:225",
+			want:  callFrame{FuncName: "<none>", File: "https://example.com/angular.min.js", Line: 31, Col: 225},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lines := js.Global.Get("String").New(tt.input)
-			frame := runtime.ParseCallFrame(lines)
-			got := fmt.Sprintf("%v %v %v %v", frame.FuncName, frame.File, frame.Line, frame.Col)
-			if tt.want != got {
-				t.Errorf("Unexpected result: %s", got)
+			line := js.Global.Get("String").New(tt.input)
+			frame := js.Global.Call("$parseCallFrame", line)
+			got := callFrame{
+				FuncName: frame.Index(0).String(),
+				File:     frame.Index(1).String(),
+				Line:     frame.Index(2).Int(),
+				Col:      frame.Index(3).Int(),
+			}
+			if got != tt.want {
+				t.Errorf("Unexpected result:\n\tgot:  %+v\n\twant: %+v", got, tt.want)
 			}
 		})
 	}
@@ -214,4 +276,125 @@ func Test_GoDebugInjection(t *testing.T) {
 	t.Setenv(`GODEBUG`, `gopherJSTest=sam`)
 	t.Setenv(`NOT_GODEBUG`, `gopherJSTest=bob`)
 	check(`"gopherJSTest=tom", "gopherJSTest=sam"`)
+}
+
+// `t.Helper()` can slow down tests because it hits the call stack which is also
+// slow. So these benchmarks are to help us improve our call stack throughput.
+//
+// The `Helper()` function on `testing.T` and `testing.B` are the same method
+// implemented by `testing.common` so by measuring the benchmark `Helper()`,
+// we're also measuring the test `Helper()`.
+//
+// Each `helper{N}` function calls t.Helper() then chains to `helper{N-1}`,
+// building up both real call depth and the number of Helper() invocations
+// per top-level call. This lets us measure how cost scales with stack depth.
+//
+// Here are the measured results from this benchmark (run with Node.js v20.9.0).
+// "before" is the ns/op before any changes were made to optimize `Helper()`.
+// "after" is the ns/op after changing to use "captureStackTrace", moving
+// parsing to prelude, and reducing line slices.
+//
+// | depth |  before |   after | %diff |
+// |:-----:|--------:|--------:|------:|
+// |   1   |  36,933 |  14,724 | 39.87 |
+// |   3   | 116,012 |  42,596 | 36.72 |
+// |   5   | 209,388 |  71,881 | 34.33 |
+// |   7   | 314,133 | 100,600 | 32.02 |
+// |   9   | 422,581 | 127,421 | 30.15 |
+//
+
+func helper1(tb testing.TB) { tb.Helper() }
+func helper2(tb testing.TB) { tb.Helper(); helper1(tb) }
+func helper3(tb testing.TB) { tb.Helper(); helper2(tb) }
+func helper4(tb testing.TB) { tb.Helper(); helper3(tb) }
+func helper5(tb testing.TB) { tb.Helper(); helper4(tb) }
+func helper6(tb testing.TB) { tb.Helper(); helper5(tb) }
+func helper7(tb testing.TB) { tb.Helper(); helper6(tb) }
+func helper8(tb testing.TB) { tb.Helper(); helper7(tb) }
+func helper9(tb testing.TB) { tb.Helper(); helper8(tb) }
+
+func Benchmark_TestingHelper(b *testing.B) {
+	tests := []struct {
+		name string
+		hndl func(b testing.TB)
+	}{
+		{name: "Depth 1", hndl: helper1},
+		{name: "Depth 3", hndl: helper3},
+		{name: "Depth 5", hndl: helper5},
+		{name: "Depth 7", hndl: helper7},
+		{name: "Depth 9", hndl: helper9},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				tt.hndl(b)
+			}
+		})
+	}
+}
+
+// `runtime.Callers` can be slow because it has to parts the JS call stacks.
+// This benchmark is to help us improve our call stack throughput.
+//
+// Known drawbacks in this benchmark: Since we're using `getCallDeep` recursively
+// `registerPosition` will only be run once then `getCallDeep` and all the rest
+// will be found. However, the amount of time difference should be negligible
+// between using a recursive function and several unique functions.
+//
+// Here are the measured results from this benchmark (run with Node.js v20.9.0).
+// "before" is the ns/op before any changes were made to optimize `Callers`.
+// "after" is the ns/op after changes were made to optimize `Callers`.
+//
+// | skip | limit |  before |   after | %diff |
+// |-----:|------:|--------:|--------:|------:|
+// |    0 |     0 |  55,072 |   4,676 |  8.49 |
+// |    0 |     5 |  67,787 |  25,090 | 37.01 |
+// |    0 |    10 |  79,737 |  43,170 | 54.14 |
+// |    0 |    15 |  90,944 |  62,425 | 68.64 |
+// |    0 |    20 | 104,100 |  81,445 | 78.24 |
+// |    5 |     0 |  57,681 |  13,442 | 23.30 |
+// |    5 |     5 |  70,863 |  33,484 | 47.25 |
+// |    5 |    10 |  81,795 |  52,188 | 63.80 |
+// |    5 |    15 |  92,862 |  72,241 | 77.79 |
+// |   10 |     0 |  58,708 |  21,957 | 37.40 |
+// |   10 |     5 |  70,626 |  41,892 | 59.32 |
+// |   10 |    10 |  81,228 |  61,685 | 75.94 |
+//
+
+func getCallDeep(depth, skip int, pc []uintptr) int {
+	if depth > 0 {
+		return getCallDeep(depth-1, skip, pc)
+	}
+	return runtime.Callers(skip, pc)
+}
+
+func Benchmark_Callers(b *testing.B) {
+	tests := []struct {
+		skip  int
+		limit int
+	}{
+		{skip: 0, limit: 0},
+		{skip: 0, limit: 5},
+		{skip: 0, limit: 10},
+		{skip: 0, limit: 15},
+		{skip: 0, limit: 20},
+		{skip: 5, limit: 0},
+		{skip: 5, limit: 5},
+		{skip: 5, limit: 10},
+		{skip: 5, limit: 15},
+		{skip: 10, limit: 0},
+		{skip: 10, limit: 5},
+		{skip: 10, limit: 10},
+	}
+	for _, tt := range tests {
+		const depth = 15
+		name := fmt.Sprintf("%02d_%02d", tt.skip, tt.limit)
+		pc := make([]uintptr, tt.limit)
+		b.Run(name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				getCallDeep(depth, tt.skip, pc)
+			}
+		})
+	}
 }
