@@ -540,17 +540,19 @@ func godebug_notify(key, value string) {
 }
 
 // syncPanicNilFromGodebug parses the given GODEBUG value for `panicnil=N`
-// and writes the result into the prelude's `$panicnil` flag, which gates
-// `$panic`'s wrap-nil-as-PanicNilError behavior. Mirrors upstream's
-// runtime.debug.panicnil atomic, just plumbed through JS instead of the
-// runtime's debugvars table.
+// and writes the result into the prelude's `$panicnil` value.
+// $panicnil mirrors the runtime's `debug.panicnil` GODEBUG setting.
+// When set to "1" (i.e. `GODEBUG=panicnil=1`), `panic(nil)` keeps the pre-go1.21
+// behavior of being recoverable as a real `nil`.
+// When "0" (the go1.21+ default), `panic(nil)` is wrapped into a
+// `*runtime.PanicNilError` so `recover()` returns a non-nil error.
 func syncPanicNilFromGodebug(godebug string) {
-	panicnil := "0"
-	if godebug != "" {
+	panicnil := `0`
+	if godebug != `` {
 		// Parse on the JS side to avoid pulling `strings` into the runtime package.
 		// The regex matches `panicnil=<digit>` in the comma-separated GODEBUG value.
-		re := js.Global.Get("RegExp").New(`(?:^|,)panicnil=(\d+)(?:,|$)`)
-		m := re.Call("exec", godebug)
+		re := js.Global.Get(`RegExp`).New(`(?:^|,)panicnil=(\d+)(?:,|$)`)
+		m := re.Call(`exec`, godebug)
 		if m != nil && m != js.Undefined && m.Length() >= 2 {
 			panicnil = m.Index(1).String()
 		}

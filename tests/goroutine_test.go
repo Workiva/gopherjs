@@ -314,6 +314,11 @@ func TestIssue1106(t *testing.T) {
 }
 
 func TestPanicNil(t *testing.T) {
+	capturePanicNil := func() (result any) {
+		defer func() { result = recover() }()
+		panic(nil) //nolint:nilpanic
+	}
+
 	got := capturePanicNil()
 	if _, ok := got.(*runtime.PanicNilError); !ok {
 		t.Errorf("expected a runtime.PanicNilError but got: %v", got)
@@ -325,9 +330,4 @@ func TestPanicNil(t *testing.T) {
 	if got != nil {
 		t.Errorf("expected a nil but got: %v", got)
 	}
-}
-
-func capturePanicNil() (result any) {
-	defer func() { result = recover() }()
-	panic(nil) //nolint:nilpanic
 }
