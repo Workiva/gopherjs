@@ -92,6 +92,8 @@ func init() {
 	js.Global.Set("$throwRuntimeError", js.InternalObject(throw))
 	js.Global.Set("$newPanicNilError", js.InternalObject(newPanicNilError))
 	buildVersion = js.Global.Get("$goVersion").String()
+	// Prepare the prelude's $panicnil flag from GODEBUG at startup.
+	syncPanicNilFromGodebug(getEnvString(godebugEnvKey))
 	// avoid dead code elimination
 	var e error
 	e = &TypeAssertionError{}
@@ -557,7 +559,7 @@ func godebug_setUpdate(update func(def, env string)) {
 // src/internal/godebug/godebug.go.
 // GOPHERJS: The GopherJS runtime doesn't need this function so we can remove it.
 //
-//gopherjs:puge
+//gopherjs:purge
 func godebug_setNewIncNonDefault(newIncNonDefault func(string) func())
 
 func getEnvString(key string) string {
@@ -580,13 +582,39 @@ func getEnvString(key string) string {
 }
 
 // godebug_notify is the function is called by syscall anytime an environment
-// variable is set or unset. It emit the GODEBUG setting if it was changed.
+// variable is set or unset. It emits the GODEBUG setting if it was changed.
 func godebug_notify(key, value string) {
-	update := godebugUpdate
-	if update == nil || key != godebugEnvKey {
+	if key != godebugEnvKey {
 		return
 	}
 
-	godebugDefault := ``
-	update(godebugDefault, value)
+	if update := godebugUpdate; update != nil {
+		godebugDefault := ``
+		update(godebugDefault, value)
+	}
+
+	// Keep the prelude's $panicnil flag in sync with GODEBUG even when the
+	// program never imported internal/godebug in which case `update` is nil.
+	syncPanicNilFromGodebug(value)
+}
+
+// syncPanicNilFromGodebug parses the given GODEBUG value for `panicnil=N`
+// and writes the result into the prelude's `$panicnil` value.
+// $panicnil mirrors the runtime's `debug.panicnil` GODEBUG setting.
+// When set to "1" (i.e. `GODEBUG=panicnil=1`), `panic(nil)` keeps the pre-go1.21
+// behavior of being recoverable as a real `nil`.
+// When "0" (the go1.21+ default), `panic(nil)` is wrapped into a
+// `*runtime.PanicNilError` so `recover()` returns a non-nil error.
+func syncPanicNilFromGodebug(godebug string) {
+	panicnil := `0`
+	if godebug != `` {
+		// Parse on the JS side to avoid pulling `strings` into the runtime package.
+		// The regex matches `panicnil=<digit>` in the comma-separated GODEBUG value.
+		re := js.Global.Get(`RegExp`).New(`(?:^|,)panicnil=(\d+)(?:,|$)`)
+		m := re.Call(`exec`, godebug)
+		if m != nil && m != js.Undefined && m.Length() >= 2 {
+			panicnil = m.Index(1).String()
+		}
+	}
+	js.Global.Set("$panicnil", panicnil)
 }
