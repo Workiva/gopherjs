@@ -67,6 +67,14 @@ type Container9 struct {
 	*Container1
 }
 
+type Do struct {
+	*Embedded
+}
+
+type Container10 struct {
+	*Do
+}
+
 func doIt(a any) {
 	fmt.Printf("%18T: ", a)
 	if aa, ok := a.(Doer); ok {
@@ -128,4 +136,9 @@ func main() {
 	doIt(c9)
 	doIt(c9.Embedded)
 	doIt(c9.Container1)
+
+	fmt.Println()
+	c10 := &Container10{Do: &Do{}}
+	doIt(c10)
+	doIt(c10.Do)
 }

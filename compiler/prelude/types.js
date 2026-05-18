@@ -433,17 +433,20 @@ var $methodSet = typ => {
             }
             seen[e.typ.string] = true;
 
-            const promote = methods => {
-                methods.forEach(m => {
-                    const name = m.name;
-                    if (!(e.shadow && e.shadow[name])) {
-                        if (mset[name] === undefined) {
-                            mset[name] = m;
-                        } else if (mset[name] !== m) {
-                            mset[name] = null; // promotion ambiguity
-                        }
+            const shadowed = name => e.shadow && e.shadow[name];
+
+            const setMsetPair = (name, m) => {
+                if (!(e.shadow && e.shadow[name])) {
+                    if (mset[name] === undefined) {
+                        mset[name] = m;
+                    } else if (mset[name] !== m) {
+                        mset[name] = null; // promotion ambiguity
                     }
-                });
+                }
+            };
+
+            const promote = methods => {
+                methods.forEach(m => setMsetPair(m.name, m));
             };
 
             if (e.typ.named) {
@@ -456,7 +459,10 @@ var $methodSet = typ => {
             switch (e.typ.kind) {
                 case $kindStruct:
                     var fieldNames = {};
-                    e.typ.fields.forEach(f => fieldNames[f.name] = true);
+                    e.typ.fields.forEach(f => {
+                        fieldNames[f.name] = true;
+                        setMsetPair(f.name, null); // use null to preempt ambiguity
+                    });
                     e.typ.fields.forEach(f => {
                         if (f.embedded) {
                             var fTyp = f.typ;
