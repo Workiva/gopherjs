@@ -435,7 +435,7 @@ var $methodSet = typ => {
 
             const promotePair = (name, m) => {
                 if (mset[name] === null) {
-                    return; // already ambiguous
+                    return; // already ambiguous or a field
                 } else if (e.shadow && e.shadow[name]) {
                     return; // shadowed by an ancestor
                 } else if (mset[name] === undefined) {
