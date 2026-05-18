@@ -1,0 +1,33 @@
+    *main.Embedded: Do
+
+  *main.Container1: Or do not
+     main.Embedded: Or do not
+    *main.Embedded: Do
+
+  *main.Container2: Or do not
+    *main.Embedded: Do
+
+  *main.Container3: Do
+     main.Embedded: Or do not
+
+  *main.Container4: Do
+    *main.Embedded: Do
+
+  *main.Container5: Try to do
+    *main.Embedded: Do
+
+  *main.Container6: Or do not
+    *main.Embedded: Do
+
+  *main.Container7: Or do not
+    *main.Embedded: Do
+*main.EmbedAnother: Do it again
+
+  *main.Container8: Do
+    *main.Embedded: Do
+  main.EmbedHolder: Do it again
+*main.EmbedAnother: Do it again
+
+  *main.Container9: Or do not
+    *main.Embedded: Do
+  *main.Container1: Or do not

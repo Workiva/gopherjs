@@ -419,13 +419,13 @@ var $methodSet = typ => {
         return [];
     }
 
-    var current = [{ typ: isPtr ? typ.elem : typ, indirect: isPtr }];
+    var current = [{ typ: isPtr ? typ.elem : typ, indirect: isPtr, shadow: undefined }];
 
     var seen = {};
 
     while (current.length > 0) {
         var next = [];
-        var mset = [];
+        var mset = {};
 
         current.forEach(e => {
             if (seen[e.typ.string]) {
@@ -433,35 +433,54 @@ var $methodSet = typ => {
             }
             seen[e.typ.string] = true;
 
+            const promote = methods => {
+                methods.forEach(m => {
+                    const name = m.name;
+                    if (!(e.shadow && e.shadow[name])) {
+                        if (mset[name] === undefined) {
+                            mset[name] = m;
+                        } else if (mset[name] !== m) {
+                            mset[name] = null; // promotion ambiguity
+                        }
+                    }
+                });
+            };
+
             if (e.typ.named) {
-                mset = mset.concat(e.typ.methods);
+                promote(e.typ.methods);
                 if (e.indirect) {
-                    mset = mset.concat($ptrType(e.typ).methods);
+                    promote($ptrType(e.typ).methods);
                 }
             }
 
             switch (e.typ.kind) {
                 case $kindStruct:
+                    var fieldNames = {};
+                    e.typ.fields.forEach(f => fieldNames[f.name] = true);
                     e.typ.fields.forEach(f => {
                         if (f.embedded) {
                             var fTyp = f.typ;
                             var fIsPtr = (fTyp.kind === $kindPtr);
-                            next.push({ typ: fIsPtr ? fTyp.elem : fTyp, indirect: e.indirect || fIsPtr });
+                            next.push({
+                                typ:      fIsPtr ? fTyp.elem : fTyp,
+                                indirect: e.indirect || fIsPtr,
+                                shadow:   fieldNames
+                            });
                         }
                     });
                     break;
 
                 case $kindInterface:
-                    mset = mset.concat(e.typ.methods);
+                    promote(e.typ.methods);
                     break;
             }
         });
 
-        mset.forEach(m => {
-            if (base[m.name] === undefined) {
-                base[m.name] = m;
+        for (const [name, m] of Object.entries(mset)) {
+            if (m !== null && base[name] === undefined) {
+                base[name] = m;
             }
-        });
+        }
 
         current = next;
     }
