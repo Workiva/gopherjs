@@ -41,3 +41,12 @@
 
  *main.Container12: Or do not
     *main.Embedded: Do
+
+ *main.Container13: Or do not
+    *main.Embedded: Do
+
+ *main.Container14: Do value
+
+ *main.Container15: Or do not
+    *main.Embedded: Do
+ *main.WithDoField: Or do not
