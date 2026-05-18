@@ -24,6 +24,6 @@ func Test_ProxyMethod(t *testing.T) { runOutputTest(t, `testdata`, `proxyMethod`
 // variable names when the code is minified.
 func Test_MinifyNaming(t *testing.T) { runOutputTest(t, `testdata`, `minifyNaming`, `-m`) }
 
-// Test_MethodHiding uses testdata/methodHiding/main.go
-// to test a type with methods that are hidden when embedded into another type.
-func Test_MethodHiding(t *testing.T) { runOutputTest(t, `testdata`, `methodHiding`) }
+// Test_Shadowing uses testdata/shadowing/main.go
+// to test a type with methods that are shadowed (hidden) when embedded into another type.
+func Test_Shadowing(t *testing.T) { runOutputTest(t, `testdata`, `shadowing`) }

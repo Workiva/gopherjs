@@ -1,10 +1,10 @@
 // This test is based on https://github.com/gopherjs/gopherjs/issues/757
-// The code was failing because the JS would fail on the hidden method, `Do`.
+// The code was failing because the JS would fail on the shadowed method, `Do`.
 // Go says that a struct field name shadows a method being promoted from an
-// embedded type. This test checks the hiding/shadowing of methods and a bunch
-// of similar type of code shapes to ensure we are handling shadowing correctly,
-// for example we also check if two embedded methods have conflicting method
-// names making Go unable to select either.
+// embedded type. This test checks the shadowing of methods as described in 757
+// and a bunch other types of shadowing to ensure we are handling shadowing
+// correctly, for example we also check if two embedded methods have ambiguous
+// method names making Go unable to select either.
 package main
 
 import "fmt"
