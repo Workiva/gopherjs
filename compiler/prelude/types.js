@@ -433,20 +433,19 @@ var $methodSet = typ => {
             }
             seen[e.typ.string] = true;
 
-            const shadowed = name => e.shadow && e.shadow[name];
-
-            const setMsetPair = (name, m) => {
-                if (!(e.shadow && e.shadow[name])) {
-                    if (mset[name] === undefined) {
-                        mset[name] = m;
-                    } else if (mset[name] !== m) {
-                        mset[name] = null; // promotion ambiguity
-                    }
+            const promotePair = (name, m) => {
+                if (mset[name] === null) {
+                    return; // already ambiguous
+                } else if (e.shadow && e.shadow[name]) {
+                    return; // shadowed by an ancestor
+                } else if (mset[name] === undefined) {
+                    mset[name] = m;
+                } else if (mset[name] !== m) {
+                    mset[name] = null; // promotion ambiguity
                 }
             };
-
             const promote = methods => {
-                methods.forEach(m => setMsetPair(m.name, m));
+                methods.forEach(m => promotePair(m.name, m));
             };
 
             if (e.typ.named) {
@@ -458,10 +457,11 @@ var $methodSet = typ => {
 
             switch (e.typ.kind) {
                 case $kindStruct:
-                    var fieldNames = {};
-                    e.typ.fields.forEach(f => {
-                        fieldNames[f.name] = true;
-                        setMsetPair(f.name, null); // use null to preempt ambiguity
+                    var nextShadow = {};
+                    Object.assign(nextShadow, e.shadow);
+                     e.typ.fields.forEach(f => {
+                        nextShadow[f.name] = true;
+                        promotePair(f.name, null); // use null to preempt ambiguity
                     });
                     e.typ.fields.forEach(f => {
                         if (f.embedded) {
@@ -470,7 +470,7 @@ var $methodSet = typ => {
                             next.push({
                                 typ:      fIsPtr ? fTyp.elem : fTyp,
                                 indirect: e.indirect || fIsPtr,
-                                shadow:   fieldNames
+                                shadow:   nextShadow
                             });
                         }
                     });
