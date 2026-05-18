@@ -38,3 +38,6 @@
  *main.Container11: Do
     *main.Embedded: Do
   *main.Container7: Or do not
+
+ *main.Container12: Or do not
+    *main.Embedded: Do

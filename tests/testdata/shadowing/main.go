@@ -90,6 +90,19 @@ type Container11 struct {
 	*Container7
 }
 
+// `Container12.DoerHolder.Doer` and `Container12.Embedded` are ambiguous
+// even though `DoerHolder.Doer` is deeper (see `Container8`), because embedded
+// interfaces contribute methods to the embedding interface meaning
+// `DoerHolder` contains a `Do` method thus `Container12.DoerHolder.Do` is at
+// the same depth as `Container12.Embedded.Do`.
+type (
+	DoerHolder  interface{ Doer }
+	Container12 struct {
+		DoerHolder
+		*Embedded
+	}
+)
+
 // doIt does a runtime type check to test the preludes, since a compile time
 // type check (e.g. `var _ Doer = ...`) is done in the Go type checker.
 func doIt(a any) {
@@ -164,4 +177,9 @@ func main() {
 	doIt(c11)
 	doIt(c11.Embedded)
 	doIt(c11.Container7)
+
+	fmt.Println()
+	c12 := &Container12{DoerHolder: &Embedded{}}
+	doIt(c12)
+	doIt(c12.DoerHolder)
 }
