@@ -1,15 +1,23 @@
 // This test is based on https://github.com/gopherjs/gopherjs/issues/757
+// and https://github.com/gopherjs/gopherjs/issues/1003.
+//
 // The code was failing because the JS would fail on the shadowed method, `Do`.
 // Go says that a struct field name shadows a method being promoted from an
-// embedded type. This test checks the shadowing of methods as described in 757
-// and a bunch other types of shadowing to ensure we are handling shadowing
-// correctly, for example we also check if two embedded methods have ambiguous
-// method names making Go unable to select either.
+// embedded type. This test checks the several ways of shadowing of methods and
+// preventing ambiguous selectors from being promoted.
+//
+// See https://go.dev/ref/spec#Selectors:
+// > For a value x of type T or *T where T is not a pointer or interface type,
+// > x.f denotes the field or method at the shallowest depth in T where there
+// > is such an f. If there is not exactly one f with shallowest depth, the
+// > selector expression is illegal.
 package main
 
 import "fmt"
 
 type Doer interface{ Do() string }
+
+type DoAnother interface{ Do() string }
 
 type Embedded struct{}
 
@@ -24,6 +32,7 @@ type ValEmbed struct{}
 func (ValEmbed) Do() string { return `Do value` }
 
 // `Container1.Do` shadows `Embedded.Do`.
+// This is based on https://github.com/gopherjs/gopherjs/issues/757
 type Container1 struct {
 	Embedded
 	Do string
@@ -64,7 +73,7 @@ type Container7 struct {
 
 // Similar `Container7` but checks the ambiguity goes away when the methods
 // are not in contention at the same level of embedding.
-// `Container8.EmbedHolder.EmbedAnother.Do` is "deeper" than `Container8.Embedded.Do`
+// `Container8.EmbedHolder.EmbedAnother.Do` is deeper than `Container8.Embedded.Do`
 // so `Container8.Embedded.Do` is called with `Container.Do`, even through
 // `Container8.EmbedHolder.Do` is also able to be called.
 type (
@@ -96,7 +105,7 @@ type Container11 struct {
 }
 
 // `Container12.DoerHolder.Doer` and `Container12.Embedded` are ambiguous
-// even though `DoerHolder.Doer` is "deeper" (see `Container8`), because embedded
+// even though `DoerHolder.Doer` is deeper (see `Container8`), because embedded
 // interfaces contribute methods to the embedding interface meaning
 // `DoerHolder` contains a `Do` method thus `Container12.DoerHolder.Do` is at
 // the same level as `Container12.Embedded.Do`.
@@ -132,11 +141,19 @@ type (
 	}
 )
 
+// The two fields are both interfaces in contention because they both define
+// `Do` methods meaning that `Container16.Do` is ambiguous.
+// This is based off of https://github.com/gopherjs/gopherjs/issues/1003
+type Container16 struct {
+	Doer
+	DoAnother
+}
+
 // doIt does a runtime type check to test the `$methodSet` method in the prelude,
 // since a compile time type check (e.g. `var _ Doer = ...`) is done in the
 // Go type checker.
 func doIt(a any) {
-	fmt.Printf("%18T: ", a)
+	fmt.Printf(`%18T: `, a)
 	if aa, ok := a.(Doer); ok {
 		fmt.Println(aa.Do())
 	} else {
@@ -227,4 +244,10 @@ func main() {
 	doIt(c15)
 	doIt(c15.Embedded)
 	doIt(c15.WithDoField)
+
+	fmt.Println()
+	c16 := &Container16{Doer: &Embedded{}, DoAnother: &Embedded{}}
+	doIt(c16)
+	doIt(c16.Doer)
+	doIt(c16.DoAnother)
 }

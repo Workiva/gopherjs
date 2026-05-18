@@ -50,3 +50,7 @@
  *main.Container15: Or do not
     *main.Embedded: Do
  *main.WithDoField: Or do not
+
+ *main.Container16: Or do not
+    *main.Embedded: Do
+    *main.Embedded: Do
