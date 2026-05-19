@@ -76,28 +76,22 @@ func Test_MethodSet_Seen(t *testing.T) {
 // prior two tests were found.
 func Test_PointerOfStructConversion_Proxies(t *testing.T) {
 	type Base struct{ val int }
+	base := &Base{val: 42}
+	type Container Base
+	_ = (*Container)(base)
+	type Cont1 = Container
 	{
-		type Container1 Base
-		type Container2 Base
-
-		c1 := (*Base)(&Container1{val: 42})
-		c2 := (*Base)(&Container2{val: 42})
-
-		// Type switch should distinguish them
-		switch any(c1).(type) {
-		case *Container1:
-			// expected
-		default:
-			t.Error(`c1 not recognized as *Container1`)
-		}
-
+		type Container Base
+		c2 := (*Container)(base)
 		switch any(c2).(type) {
-		case *Container2:
-			// expected
-		case *Container1:
-			t.Error(`c2 wrongly recognized as *Container; proxy cache collision`)
+		case *Cont1:
+			// This is the case hit when using `.string` instead of `.id` because
+			// the base already proxies to a `*tests.Container` from `Cont1`.
+			t.Errorf(`incorrect proxy. %T was the outer definition of Container`, c2)
+		case *Container:
+			// correct
 		default:
-			t.Error(`c2 not recognizes as *Container1 nor *Container2`)
+			t.Errorf(`incorrect proxy. %T was neither of the Containers`, c2)
 		}
 	}
 }
