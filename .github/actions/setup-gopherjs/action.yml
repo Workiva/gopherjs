@@ -2,11 +2,6 @@ name: Setup GopherJS
 description: Sets up Go, Node.js, and GopherJS
 
 inputs:
-  includeSyscall:
-    description: Indicates that the node-syscall package should be installed.
-    required: true
-    default: 'false'
-
   fixTemps:
     description: Indicates that the Windows Temp variables should be fixed.
     required: true
@@ -39,20 +34,10 @@ runs:
       with:
         node-version: ${{ env.NODE_VERSION }}
 
-    - name: Install Node.js for non-Linux
-      if: inputs.includeSyscall != 'true'
+    - name: Install Node.js
       working-directory: ${{ env.GOPHERJS_PATH }}
       shell: bash
-      # Install required Node.js packages without optional (node-syscall).
-      run: npm install --omit=optional --no-package-lock
-
-    - name: Install Node.js for Linux
-      if: inputs.includeSyscall == 'true'
-      working-directory: ${{ env.GOPHERJS_PATH }}
-      shell: bash
-      # Install required Node.js packages including optional (node-syscall).
-      run: |
-        npm install --include=optional --no-package-lock
+      run: npm install --no-package-lock
 
     - name: Setup Node.js Environment
       working-directory: ${{ env.GOPHERJS_PATH }}

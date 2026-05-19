@@ -1,7 +1,4 @@
 {
   "name": "gopherjs",
-  "license": "BSD-2-Clause",
-  "optionalDependencies": {
-    "syscall": "file:./node-syscall"
-  }
+  "license": "BSD-2-Clause"
 }
