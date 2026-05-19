@@ -53,7 +53,7 @@ func Test_AssertType_ImplementedBy(t *testing.T) {
 // This is similar to `Test_AssertType_ImplementedBy` except the loop gaurd,
 // `seen`, in `$methodSet` was using `e.typ.string` as the key, which caused
 // this test to fail since the `Container`s here both have the string
-// `*tests.Containers`. The way they are embedded caused the inner most one
+// `*tests.Container`. The way they are embedded caused the inner most one
 // that defines `func Do() string` to be skipped, thus the cast didn't work.
 // Switching the key to `e.typ.id` fixes this issue.
 func Test_MethodSet_Seen(t *testing.T) {
@@ -146,7 +146,7 @@ type Shadow5Container struct{ *DoEmbedded }
 
 func (e *Shadow5Container) Do() string { return `Try to do` }
 
-// `Container5.Do` shadows `DoEmbedded.Do`.
+// `Shadow5Container.Do` shadows `DoEmbedded.Do`.
 func Test_Shadow5(t *testing.T) {
 	c := &Shadow5Container{}
 	shadowCheck(t, c, `Try to do`)
