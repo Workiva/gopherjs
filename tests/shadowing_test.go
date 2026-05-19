@@ -28,6 +28,49 @@ func (*DoEmbedded) Do() string      { return `Do` }
 func (*DoEmbeddedAgain) Do() string { return `Do it again` }
 func (DoValueEmbedded) Do() string  { return `Do value` }
 
+// When performing `$assertType` the `value.constructor.string` was used for
+// the key in `implementedBy` which caused this test to fail because both
+// of the `Container` types have the string `*tests.Container` but one does
+// cast and the other does not. Switching the key to `value.constructor.id`
+// fixes this issue.
+func Test_ImplementedBy(t *testing.T) {
+	func() {
+		type Container struct{ DoEmbedded }
+		c := &Container{}
+		if _, ok := any(c).(Doer); !ok {
+			t.Errorf("cast of %T (#1) is expected to work, but it did not", c)
+		}
+	}()
+
+	func() {
+		type Container struct{ Name string }
+		c := &Container{}
+		if _, ok := any(c).(Doer); ok {
+			t.Errorf("cast of %T (#2) is expected to not work, but it did", c)
+		}
+	}()
+}
+
+// This is similar to `Test_ImplementedBy` except the loop gaurd, `seen`, in
+// `$methodSet` was using `e.typ.string` as the key, which caused this test to
+// fail since the `Container`s here both have the string `*tests.Containers`.
+// The way they are embedded caused the inner most one that defines
+// `func Do() string` to be skipped, thus the cast didn't work.
+// Switching the key to `e.typ.id` fixes this issue.
+func Test_MethodSetSeen(t *testing.T) {
+	type (
+		Container struct{ DoEmbedded }
+		Box       struct{ Container }
+	)
+	func() {
+		type Container struct{ Box }
+		c := &Container{}
+		if _, ok := any(c).(Doer); !ok {
+			t.Errorf("cast of %T (#1) is expected to work, but it did not", c)
+		}
+	}()
+}
+
 // `Container.Do` shadows `DoEmbedded.Do`.
 // This is based on https://github.com/gopherjs/gopherjs/issues/757
 func Test_Shadow1(t *testing.T) {

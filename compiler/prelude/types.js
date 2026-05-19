@@ -428,10 +428,10 @@ var $methodSet = typ => {
         var mset = {};
 
         current.forEach(e => {
-            if (seen[e.typ.string]) {
+            if (seen[e.typ.id]) {
                 return;
             }
-            seen[e.typ.string] = true;
+            seen[e.typ.id] = true;
 
             const promotePair = (name, m) => {
                 if (mset[name] === null) {
