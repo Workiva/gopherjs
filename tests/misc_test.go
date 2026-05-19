@@ -1103,6 +1103,15 @@ func TestNilPointerDereference(t *testing.T) {
 				h(nil, nil)
 			},
 		},
+		{
+			name: `calling nil embedded function`,
+			fn: func() {
+				type foo interface{ Foo() }
+				type bar struct{ foo }
+				b := bar{}
+				b.Foo()
+			},
+		},
 	}
 
 	for _, test := range tests {
