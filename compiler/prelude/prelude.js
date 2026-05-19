@@ -528,6 +528,7 @@ var $pointerOfStructConversion = (obj, type) => {
     if (obj === (obj.constructor && obj.constructor.nil)) {
         return type.nil;
     }
+    console.log(">> ", obj.constructor.string, " (", obj.constructor.id,") => ", type.string, " (", type.id, ")"); // TODO(grantnelson-wf): REMOVE
     if (obj.$proxies === undefined) {
         obj.$proxies = {};
         obj.$proxies[obj.constructor.string] = obj;

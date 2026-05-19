@@ -33,42 +33,73 @@ func (DoValueEmbedded) Do() string  { return `Do value` }
 // of the `Container` types have the string `*tests.Container` but one does
 // cast and the other does not. Switching the key to `value.constructor.id`
 // fixes this issue.
-func Test_ImplementedBy(t *testing.T) {
-	func() {
+func Test_AssertType_ImplementedBy(t *testing.T) {
+	{
 		type Container struct{ DoEmbedded }
 		c := &Container{}
 		if _, ok := any(c).(Doer); !ok {
 			t.Errorf("cast of %T (#1) is expected to work, but it did not", c)
 		}
-	}()
-
-	func() {
+	}
+	{
 		type Container struct{ Name string }
 		c := &Container{}
 		if _, ok := any(c).(Doer); ok {
 			t.Errorf("cast of %T (#2) is expected to not work, but it did", c)
 		}
-	}()
+	}
 }
 
-// This is similar to `Test_ImplementedBy` except the loop gaurd, `seen`, in
-// `$methodSet` was using `e.typ.string` as the key, which caused this test to
-// fail since the `Container`s here both have the string `*tests.Containers`.
-// The way they are embedded caused the inner most one that defines
-// `func Do() string` to be skipped, thus the cast didn't work.
+// This is similar to `Test_AssertType_ImplementedBy` except the loop gaurd,
+// `seen`, in `$methodSet` was using `e.typ.string` as the key, which caused
+// this test to fail since the `Container`s here both have the string
+// `*tests.Containers`. The way they are embedded caused the inner most one
+// that defines `func Do() string` to be skipped, thus the cast didn't work.
 // Switching the key to `e.typ.id` fixes this issue.
-func Test_MethodSetSeen(t *testing.T) {
+func Test_MethodSet_Seen(t *testing.T) {
 	type (
 		Container struct{ DoEmbedded }
 		Box       struct{ Container }
 	)
-	func() {
+	{
 		type Container struct{ Box }
 		c := &Container{}
 		if _, ok := any(c).(Doer); !ok {
 			t.Errorf("cast of %T (#1) is expected to work, but it did not", c)
 		}
-	}()
+	}
+}
+
+// THis is similar to `Test_AssertType_ImplementedBy` and `Test_MethodSet_Seen`
+// except is for the `$proxies` key in `$pointerOfStructConversion`. This is
+// not directly related to shadowing but was found when the issues for the
+// prior two tests were found.
+func Test_PointerOfStructConversion_Proxies(t *testing.T) {
+	type Base struct{ val int }
+	{
+		type Container1 Base
+		type Container2 Base
+
+		c1 := (*Base)(&Container1{val: 42})
+		c2 := (*Base)(&Container2{val: 42})
+
+		// Type switch should distinguish them
+		switch any(c1).(type) {
+		case *Container1:
+			// expected
+		default:
+			t.Error(`c1 not recognized as *Container1`)
+		}
+
+		switch any(c2).(type) {
+		case *Container2:
+			// expected
+		case *Container1:
+			t.Error(`c2 wrongly recognized as *Container; proxy cache collision`)
+		default:
+			t.Error(`c2 not recognizes as *Container1 nor *Container2`)
+		}
+	}
 }
 
 // `Container.Do` shadows `DoEmbedded.Do`.
