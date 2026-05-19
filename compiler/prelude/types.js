@@ -775,8 +775,8 @@ var $assertType = (value, type, returnTuple) => {
     } else if (!isInterface) {
         ok = value.constructor === type;
     } else {
-        var valueTypeString = value.constructor.string;
-        ok = type.implementedBy[valueTypeString];
+        var valueTypeId = value.constructor.id;
+        ok = type.implementedBy[valueTypeId];
         if (ok === undefined) {
             ok = true;
             var valueMethodSet = $methodSet(value.constructor);
@@ -793,14 +793,14 @@ var $assertType = (value, type, returnTuple) => {
                 }
                 if (!found) {
                     ok = false;
-                    type.missingMethodFor[valueTypeString] = tm.name;
+                    type.missingMethodFor[valueTypeId] = tm.name;
                     break;
                 }
             }
-            type.implementedBy[valueTypeString] = ok;
+            type.implementedBy[valueTypeId] = ok;
         }
         if (!ok) {
-            missingMethod = type.missingMethodFor[valueTypeString];
+            missingMethod = type.missingMethodFor[valueTypeId];
         }
     }
 

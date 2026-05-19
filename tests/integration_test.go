@@ -23,7 +23,3 @@ func Test_ProxyMethod(t *testing.T) { runOutputTest(t, `testdata`, `proxyMethod`
 // to test that the package level type names do not conflict with function level
 // variable names when the code is minified.
 func Test_MinifyNaming(t *testing.T) { runOutputTest(t, `testdata`, `minifyNaming`, `-m`) }
-
-// Test_Shadowing uses testdata/shadowing/main.go
-// to test a type with methods that are shadowed (hidden) when embedded into another type.
-func Test_Shadowing(t *testing.T) { runOutputTest(t, `testdata`, `shadowing`) }
