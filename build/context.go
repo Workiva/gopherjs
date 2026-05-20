@@ -224,8 +224,7 @@ func (sc simpleCtx) applyPreloadTweaks(importPath string, srcDir string, mode bu
 		bctx.GOOS = "js"
 		bctx.GOARCH = "wasm"
 	}
-	switch importPath {
-	case "github.com/gopherjs/gopherjs/js", "github.com/gopherjs/gopherjs/nosync":
+	if isGopherJSImportPath(importPath) {
 		// These packages are already embedded via gopherjspkg.FS virtual filesystem
 		// (which can be safely vendored). Don't try to use vendor directory to
 		// resolve them.
