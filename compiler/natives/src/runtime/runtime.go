@@ -2,7 +2,9 @@
 
 package runtime
 
-import "github.com/gopherjs/gopherjs/js"
+import (
+	"github.com/gopherjs/gopherjs/js"
+)
 
 const (
 	GOOS     = "js"
@@ -158,33 +160,145 @@ type basicFrame struct {
 }
 
 func callstack(skip, limit int) []basicFrame {
-	// $callstack in prelude.js returns an iterator function.
-	// The returned stack reader may be able to return more than limit number
-	// of frames so only read as many as needed.
-	// skip+1 skips callstack's own call frame.
-	lines := js.Global.Call("$callstack", skip+1, limit)
+	skip += 2 // +1 for callstack's own frame and one for getRawCallStack
+	stack := getRawCallstack(skip + limit)
+	return parseCallstack(stack, skip)
+}
+
+// getRawCallstack gets the stack limited to the `limit` number of lines.
+// The returned stack will include this function call and any default error header.
+func getRawCallstack(limit int) *js.Object {
+	e := js.Global.Get("Error")
+
+	// Limit stack to only the size we need then reset it.
+	oldLimit := e.Get("stackTraceLimit")
+	defer e.Set("stackTraceLimit", oldLimit)
+	e.Set("stackTraceLimit", limit)
+
+	if e.Get("captureStackTrace") != js.Undefined {
+		target := js.Global.Get("Object").New()
+		e.Call("captureStackTrace", target)
+		return target.Get("stack")
+	}
+	return e.New().Get("stack")
+}
+
+// lineOffset gets the offset to the first character after the `count`-th newline,
+// This returns the start of the `count`-th line in the given js string.
+func lineOffset(str *js.Object, count int) int {
+	pos := 0
+	len := str.Length()
+	for i := 0; i < count && pos < len; i++ {
+		nl := str.Call("indexOf", "\n", pos).Int()
+		if nl < 0 {
+			return len
+		}
+		pos = nl + 1
+	}
+	return pos
+}
+
+func parseCallstack(stack *js.Object, skip int) []basicFrame {
+	// If `new Error().stack` doesn't exist like on older IE versions
+	// or something went wrong getting the stack, just return empty.
+	if stack == js.Undefined {
+		return []basicFrame{}
+	}
+
+	// Drop any tailing "\n" (and any trailing space before first "at " if there is one).
+	stack = stack.Call("trim")
+
+	// V8 prepends an "Error" or "Error: msg" header line that isn't a frame.
+	// Firefox and Safari do not. Detect by checking for "@" or starts with "at ".
+	// This check could still be wrong if the Error message itself has an "@" in it,
+	// (e.g. `new Error("a@b")`), however since we not calling error with an
+	// error message, it should be fine.
+	firstLine := stack
+	if firstNl := stack.Call("indexOf", "\n").Int(); firstNl >= 0 {
+		firstLine = stack.Call("substring", 0, firstNl)
+	}
+	if !firstLine.Call("includes", "@").Bool() && !firstLine.Call("startsWith", "at ").Bool() {
+		skip++ // skip "Error" header line.
+	}
+
+	// Remove the skipped amount of the stack and the error header if there was one.
+	stack = stack.Call("substring", lineOffset(stack, skip))
+	if stack.Length() == 0 {
+		return []basicFrame{}
+	}
+	lines := stack.Call("split", "\n")
+
+	// Parse all the frames skipping frames as needed.
 	frames := []basicFrame{}
-	l := min(lines.Length(), limit)
+	l := lines.Length()
 	for i := 0; i < l; i++ {
-		frame := js.Global.Call("$parseCallFrame", lines.Index(i))
-		funcName := frame.Index(0).String()
-		if hiddenFrames[funcName] {
+		frame := ParseCallFrame(lines.Index(i))
+		if hiddenFrames[frame.FuncName] {
 			continue
 		}
-		if alias, ok := knownFrames[funcName]; ok {
-			funcName = alias
+		if alias, ok := knownFrames[frame.FuncName]; ok {
+			frame.FuncName = alias
 		}
-		frames = append(frames, basicFrame{
-			FuncName: funcName,
-			File:     frame.Index(1).String(),
-			Line:     frame.Index(2).Int(),
-			Col:      frame.Index(3).Int(),
-		})
-		if funcName == "runtime.goexit" {
+		frames = append(frames, frame)
+		if frame.FuncName == "runtime.goexit" {
 			break // We've reached the bottom of the goroutine stack.
 		}
 	}
 	return frames
+}
+
+// callFramePosRegex will break up a <file>:<line>:<column> pattern where the
+// file may also contain colons and the column or line/column are optional.
+var callFramePosRegex = js.Global.Get("RegExp").New(`^\s*(.+?)(?::(\d+)(?::(\d+))?)?\s*$`)
+
+func parseCallFramePos(fnName string, pos *js.Object) basicFrame {
+	if pos.String() == "<anonymous>" {
+		return basicFrame{FuncName: fnName, File: "<anonymous>"}
+	}
+	file, line, col := ``, 0, 0
+	m := callFramePosRegex.Call(`exec`, pos)
+	if m != js.Undefined {
+		file = m.Index(1).String()
+		line = m.Index(2).Int()
+		col = m.Index(3).Int()
+	}
+	return basicFrame{FuncName: fnName, File: file, Line: line, Col: col}
+}
+
+// ParseCallFrame is exported for the sake of testing. See this discussion for context https://github.com/gopherjs/gopherjs/pull/1097/files/561e6381406f04ccb8e04ef4effedc5c7887b70f#r776063799
+//
+// TLDR; never use this function!
+func ParseCallFrame(info *js.Object) basicFrame {
+	// FireFox
+	if atIdx := info.Call("indexOf", "@").Int(); atIdx >= 0 {
+		fnName := info.Call("substring", 0, atIdx).String()
+		if len(fnName) == 0 {
+			fnName = "<none>"
+		}
+		return parseCallFramePos(fnName, info.Call("substring", atIdx+1))
+	}
+
+	// Chrome / Node.js
+	if atLeadIdx := info.Call("indexOf", "at ").Int(); atLeadIdx >= 0 {
+		info = info.Call("substring", atLeadIdx+3)
+	}
+	openIdx := info.Call("lastIndexOf", "(").Int()
+	if openIdx == -1 {
+		// No-parens form: "at file:line:col"
+		return parseCallFramePos("<none>", info)
+	}
+
+	// With-parens form: "at func (file:line:col)"
+	pos := info.Call("substring", openIdx+1, info.Call("indexOf", ")").Int())
+	fn := info.Call("substring", 0, info.Call("indexOf", "(").Int()).Call("trim")
+	if idx := fn.Call("indexOf", "[as ").Int(); idx > 0 {
+		closeIdx := fn.Call("indexOf", "]").Int()
+		if closeIdx < 0 {
+			closeIdx = fn.Length()
+		}
+		fn = fn.Call("substring", idx+4, closeIdx).Call("trim")
+	}
+	return parseCallFramePos(fn.String(), pos)
 }
 
 var (
