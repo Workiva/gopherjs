@@ -161,19 +161,20 @@ type basicFrame struct {
 
 func callstack(skip, limit int) []basicFrame {
 	skip += 2 // +1 for callstack's own frame and one for getRawCallStack
-	stack := getRawCallstack(skip + limit)
-	return parseCallstack(stack, skip)
+	stackTraceLimit := skip + limit + len(knownFrames) + len(hiddenFrames)
+	stack := getRawCallstack(stackTraceLimit)
+	return parseCallstack(stack, skip, limit)
 }
 
-// getRawCallstack gets the stack limited to the `limit` number of lines.
+// getRawCallstack gets the stack limited with the `stackTraceLimit`.
 // The returned stack will include this function call and any default error header.
-func getRawCallstack(limit int) *js.Object {
+func getRawCallstack(stackTraceLimit int) *js.Object {
 	e := js.Global.Get("Error")
 
 	// Limit stack to only the size we need then reset it.
 	oldLimit := e.Get("stackTraceLimit")
 	defer e.Set("stackTraceLimit", oldLimit)
-	e.Set("stackTraceLimit", limit)
+	e.Set("stackTraceLimit", stackTraceLimit)
 
 	if e.Get("captureStackTrace") != js.Undefined {
 		target := js.Global.Get("Object").New()
@@ -198,7 +199,7 @@ func lineOffset(str *js.Object, count int) int {
 	return pos
 }
 
-func parseCallstack(stack *js.Object, skip int) []basicFrame {
+func parseCallstack(stack *js.Object, skip, limit int) []basicFrame {
 	// If `new Error().stack` doesn't exist like on older IE versions
 	// or something went wrong getting the stack, just return empty.
 	if stack == js.Undefined {
@@ -231,7 +232,7 @@ func parseCallstack(stack *js.Object, skip int) []basicFrame {
 	// Parse all the frames skipping frames as needed.
 	frames := []basicFrame{}
 	l := lines.Length()
-	for i := 0; i < l; i++ {
+	for i := 0; i < l && len(frames) < limit; i++ {
 		frame := ParseCallFrame(lines.Index(i))
 		if hiddenFrames[frame.FuncName] {
 			continue
