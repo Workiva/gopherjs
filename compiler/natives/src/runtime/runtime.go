@@ -199,6 +199,22 @@ func lineOffset(str *js.Object, count int) int {
 	return pos
 }
 
+var (
+	// These functions are GopherJS-specific and don't have counterparts in
+	// upstream Go runtime. To improve interoperability, we filter them out from
+	// the stack trace.
+	hiddenFrames = map[string]bool{
+		"$callDeferred": true,
+	}
+	// The following GopherJS prelude functions have differently-named
+	// counterparts in the upstream Go runtime. Some standard library code relies
+	// on the names matching, so we perform this substitution.
+	knownFrames = map[string]string{
+		"$panic":     "runtime.gopanic",
+		"$goroutine": "runtime.goexit",
+	}
+)
+
 func parseCallstack(stack *js.Object, skip, limit int) []basicFrame {
 	// If `new Error().stack` doesn't exist like on older IE versions
 	// or something went wrong getting the stack, just return empty.
@@ -302,24 +318,8 @@ func ParseCallFrame(info *js.Object) basicFrame {
 	return parseCallFramePos(fn.String(), pos)
 }
 
-var (
-	// These functions are GopherJS-specific and don't have counterparts in
-	// upstream Go runtime. To improve interoperability, we filter them out from
-	// the stack trace.
-	hiddenFrames = map[string]bool{
-		"$callDeferred": true,
-	}
-	// The following GopherJS prelude functions have differently-named
-	// counterparts in the upstream Go runtime. Some standard library code relies
-	// on the names matching, so we perform this substitution.
-	knownFrames = map[string]string{
-		"$panic":     "runtime.gopanic",
-		"$goroutine": "runtime.goexit",
-	}
-)
-
 func Caller(skip int) (pc uintptr, file string, line int, ok bool) {
-	skip++ // +1 to skip Caller's own frame
+	skip = skip + 1 /*skip Caller's own frame*/
 	frames := callstack(skip, 1)
 	if len(frames) != 1 {
 		return 0, "", 0, false
