@@ -34,17 +34,6 @@ runs:
       with:
         node-version: ${{ env.NODE_VERSION }}
 
-    - name: Install Node.js
-      working-directory: ${{ env.GOPHERJS_PATH }}
-      shell: bash
-      run: npm install --no-package-lock
-
-    - name: Setup Node.js Environment
-      working-directory: ${{ env.GOPHERJS_PATH }}
-      shell: bash
-      # Make nodejs able to require installed modules from any working path.
-      run: echo "NODE_PATH=$(npm root)" >> $GITHUB_ENV
-
     - name: Install GopherJS
       working-directory: ${{ env.GOPHERJS_PATH }}
       shell: bash
