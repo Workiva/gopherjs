@@ -146,9 +146,9 @@ func masked(_ funcName) funcName { return "<MASKED>" }
 
 type callStack []funcName
 
-func (c *callStack) capture() {
+func (c *callStack) capture(amount int) {
 	*c = nil
-	pc := [100]uintptr{}
+	pc := make([]uintptr, amount)
 	depth := runtime.Callers(0, pc[:])
 	frames := runtime.CallersFrames(pc[:depth])
 	for true {
@@ -183,7 +183,7 @@ func TestCallers(t *testing.T) {
 			"runtime.goexit",
 		}
 
-		got.capture()
+		got.capture(100)
 		if diff := cmp.Diff(want, got, opts); diff != "" {
 			t.Errorf("runtime.Callers() returned a diff (-want,+got):\n%s", diff)
 		}
@@ -207,14 +207,14 @@ func TestCallers(t *testing.T) {
 				t.Errorf("runtime.Callers() returned a diff (-want,+got):\n%s", diff)
 			}
 		}()
-		defer got.capture()
+		defer got.capture(100)
 	})
 
 	t.Run("Recover", func(t *testing.T) {
 		got := callStack{}
 		defer func() {
 			recover()
-			got.capture()
+			got.capture(100)
 
 			want := callStack{
 				"runtime.Callers",
@@ -230,6 +230,37 @@ func TestCallers(t *testing.T) {
 			}
 		}()
 		panic("panic")
+	})
+
+	t.Run("Nested Deffers", func(t *testing.T) {
+		got := callStack{}
+		var deepDefer func(depth int)
+		deepDefer = func(depth int) {
+			defer func() {
+				if depth > 0 {
+					deepDefer(depth - 1)
+					return
+				}
+				got.capture(8)
+			}()
+		}
+		deepDefer(3)
+
+		want := callStack{
+			"runtime.Callers",
+			"github.com/gopherjs/gopherjs/tests.callStack.capture",
+			"github.com/gopherjs/gopherjs/tests.TestCallers.func5.func1.func1",
+			// For some reason these are different in CI and they don't appear
+			// to be source-mapped.
+			masked("Array.TestCallers·func5·func1"),
+			"github.com/gopherjs/gopherjs/tests.TestCallers.func5.func1.func1",
+			masked("Array.TestCallers·func5·func1"),
+			// Only 6 frames came back because we requested 8 and
+			// 2 were the hidden $callDefered frames.
+		}
+		if diff := cmp.Diff(want, got, opts); diff != "" {
+			t.Errorf("runtime.Callers() returned a diff (-want,+got):\n%s", diff)
+		}
 	})
 }
 
@@ -286,15 +317,15 @@ func Test_GoDebugInjection(t *testing.T) {
 // Here are the measured results from this benchmark (run with Node.js v20.9.0).
 // "before" is the ns/op before any changes were made to optimize `Helper()`.
 // "after" is the ns/op after changing to use "captureStackTrace", moving
-// parsing to prelude, and reducing line slices.
+// parsing to prelude, and reducing line slices by adjusting the limit.
 //
 // | depth |  before |   after | %diff |
 // |:-----:|--------:|--------:|------:|
-// |   1   |  36,933 |  14,724 | 39.87 |
-// |   3   | 116,012 |  42,596 | 36.72 |
-// |   5   | 209,388 |  71,881 | 34.33 |
-// |   7   | 314,133 | 100,600 | 32.02 |
-// |   9   | 422,581 | 127,421 | 30.15 |
+// |   1   |  36,933 |  16,720 | 45.27 |
+// |   3   | 116,012 |  49,470 | 42.64 |
+// |   5   | 209,388 |  80,091 | 38.25 |
+// |   7   | 314,133 | 115,612 | 36.80 |
+// |   9   | 422,581 | 150,933 | 35.72 |
 //
 
 func helper1(tb testing.TB) { tb.Helper() }
@@ -342,18 +373,18 @@ func Benchmark_TestingHelper(b *testing.B) {
 //
 // | skip | limit |  before |   after | %diff |
 // |-----:|------:|--------:|--------:|------:|
-// |    0 |     0 |  55,072 |   4,676 |  8.49 |
-// |    0 |     5 |  67,787 |  25,090 | 37.01 |
-// |    0 |    10 |  79,737 |  43,170 | 54.14 |
-// |    0 |    15 |  90,944 |  62,425 | 68.64 |
-// |    0 |    20 | 104,100 |  81,445 | 78.24 |
-// |    5 |     0 |  57,681 |  13,442 | 23.30 |
-// |    5 |     5 |  70,863 |  33,484 | 47.25 |
-// |    5 |    10 |  81,795 |  52,188 | 63.80 |
-// |    5 |    15 |  92,862 |  72,241 | 77.79 |
-// |   10 |     0 |  58,708 |  21,957 | 37.40 |
-// |   10 |     5 |  70,626 |  41,892 | 59.32 |
-// |   10 |    10 |  81,228 |  61,685 | 75.94 |
+// |    0 |     0 |  55,072 |      88 |  0.16 |
+// |    0 |     5 |  67,787 |   27767 | 40.96 |
+// |    0 |    10 |  79,737 |   47880 | 60.05 |
+// |    0 |    15 |  90,944 |   66538 | 73.16 |
+// |    0 |    20 | 104,100 |   87093 | 83.66 |
+// |    5 |     0 |  57,681 |      91 |  0.16 |
+// |    5 |     5 |  70,863 |   37025 | 52.25 |
+// |    5 |    10 |  81,795 |   57311 | 70.07 |
+// |    5 |    15 |  92,862 |   77677 | 83.65 |
+// |   10 |     0 |  58,708 |      91 |  0.16 |
+// |   10 |     5 |  70,626 |   45404 | 64.29 |
+// |   10 |    10 |  81,228 |   66609 | 82.00 |
 //
 
 func getCallDeep(depth, skip int, pc []uintptr) int {

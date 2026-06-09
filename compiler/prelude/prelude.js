@@ -89,6 +89,93 @@ if (($global.process !== undefined) && $global.require) {
 }
 var $println = console.log
 
+// $callstack captures a stack trace and returns a list of lines, typically
+// there will be "limit" numbers of lines returned.
+// skip=0 means "the direct caller of $callstack"; limit caps frames captured.
+var $callstack = (skip, limit) => {
+    const oldLimit = Error.stackTraceLimit;
+    var stack;
+    try {
+        Error.stackTraceLimit = skip+limit
+        stack = new Error().stack
+    } finally {
+		Error.stackTraceLimit = oldLimit;
+    }
+
+    // If `new Error().stack` doesn't exist like on older IE versions
+    // or something went wrong getting the stack, just return empty.
+    if (!stack) return [];
+    // Drop any tailing "\n" (and any trailing space before first "at " if there is one).
+    stack = stack.trim();
+    // V8 prepends an "Error" or "Error: msg" header line that isn't a frame.
+    // Firefox and Safari do not. Detect by checking for "@" or starts with "at ".
+    // This check could still be wrong if the Error message itself has an "@" in it,
+    // (e.g. `new Error("a@b")`), however since we are calling `new Error().stack`
+    // it should be fine.
+    const firstNl = stack.indexOf("\n");
+    const firstLine = firstNl >= 0 ? stack.substring(0, firstNl) : stack;
+    if (!firstLine.includes("@") && !firstLine.startsWith("at ")) {
+        skip++; // skip "Error" header line.
+    }
+    
+	// Remove the skipped amount of the stack and the error header if there was one.
+	return stack.split("\n").slice(skip);
+}
+
+// $parseCallFrame parses a call frame string and
+// returns the tuple [funcName, file, line, col].
+var $parseCallFrame = (frame) => {
+    // The first time this is called, compile the regexp,
+    // then reuse it for all following calls.
+    const posRe = /^(.+?)(?::(\d+)(?::(\d+))?)?$/;
+    const parsePos = (fnName, framePos) => {
+        const m = posRe.exec(framePos);
+        if (m) {
+            const file = m[1] || "";
+            const line = m[2] || 0; // Will be read with a js.Object:Int
+            const col  = m[3] || 0; // Will be read with a js.Object:Int
+            return [fnName, file, line, col];
+        }
+        return [fnName, "", 0, 0];
+    }
+    $parseCallFrame = (frame) => {
+        // FireFox
+        const atIdx = frame.indexOf("@")
+        if (atIdx >= 0) {
+            const fnName = frame.substring(0, atIdx) || "<none>";
+            return parsePos(fnName, frame.substring(atIdx + 1));
+        }
+
+	    // Chrome / Node.js
+        const atLeadIdx = frame.indexOf("at ");
+        if (atLeadIdx >= 0) frame = frame.substring(atLeadIdx + 3);
+        const openIdx = frame.lastIndexOf("(");
+        if (openIdx === -1) {
+            // No-parens form: "at file:line:col"
+            return parsePos("<none>", frame);
+        }
+
+        // With-parens form: "at func (file:line:col)"
+        var fnName = frame.substring(0, frame.indexOf("(")).trim();
+        const asIdx = fnName.indexOf("[as ");
+        if (asIdx > 0) {
+            var closeIdx = fnName.indexOf("]");
+            if (closeIdx === -1) closeIdx = fnName.length;
+            fnName = fnName.substring(asIdx+4, closeIdx).trim();
+        }
+
+        var closeIdx = frame.indexOf(")", openIdx);
+        if (closeIdx === -1) closeIdx = frame.length;
+
+        var pos = frame.substring(openIdx + 1, closeIdx);
+        if (pos === "<anonymous>") {
+            return [fnName, "<anonymous>", 0, 0]
+        }
+        return parsePos(fnName, pos);
+    };
+    return $parseCallFrame(frame);
+};
+
 var $callForAllPackages = (methodName) => {
     var names = $keys($packages);
     for (var i = 0; i < names.length; i++) {
