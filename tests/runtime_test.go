@@ -123,7 +123,13 @@ func Test_parseCallFrame(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			line := js.Global.Get("String").New(tt.input)
-			got := callFrame(runtime.ParseCallFrame(line))
+			frame := js.Global.Call("$parseCallFrame", line)
+			got := callFrame{
+				FuncName: frame.Index(0).String(),
+				File:     frame.Index(1).String(),
+				Line:     frame.Index(2).Int(),
+				Col:      frame.Index(3).Int(),
+			}
 			if got != tt.want {
 				t.Errorf("Unexpected result:\n\tgot:  %+v\n\twant: %+v", got, tt.want)
 			}
