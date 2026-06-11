@@ -143,8 +143,8 @@ var $parseCallFrame = (frame) => {
     // e.g., "Object.runtime.Callers" and "typ2.github.com/...".
     // The `typ2` comes from prelude\types.js in `$newType`. The `typ`
     // in that function gets renamed by esbuild to `typ2`.
-    const receiverRe = /^(?:Object|typ\d*)\./;
-    const stripReceiver = (fnName) => fnName.replace(receiverRe, "");
+    const receiverRe = /^(?:(?:Object|typ\d*)\.)|(?:[a-zA-Z_$][a-zA-Z0-9_$]*\.(github\.com[\\|/]))/;
+    const stripReceiver = (fnName) => fnName.replace(receiverRe, "$1");
 
     $parseCallFrame = (frame) => {
         // FireFox

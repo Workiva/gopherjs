@@ -312,3 +312,488 @@ func Test_MinMax(t *testing.T) {
 		t.Errorf("max(..NaN..): got: %v, want: %v", got, math.NaN())
 	}
 }
+
+// =============================================================================
+// Experimental native bit-twiddling helpers.
+//
+// The following nativeX functions are alternative implementations of selected
+// math/bits functions, written to leverage JavaScript-specific properties:
+//   - JS numbers can hold values larger than 2^32 exactly (up to 2^53), so an
+//     addition of two uint32 values does not overflow; the carry can be read
+//     off the high bits of the sum without a separate bit formula.
+//   - GopherJS represents uint64 as a JS object with $high and $low fields,
+//     each a uint32. Decomposing uint64 ops into two 32-bit halves can avoid
+//     the cost of full uint64 arithmetic.
+//   - V8 / SpiderMonkey expose Math.clz32 as a fast count-leading-zeros
+//     primitive, often a single machine instruction.
+//
+// These are kept in test code so we can benchmark them against the standard
+// math/bits implementations before promoting any to native overrides in
+// compiler/natives. They are JS-only.
+// =============================================================================
+
+func nativeLeadingZeros32(x uint32) int {
+	return js.Global.Get("Math").Call("clz32", x).Int()
+}
+
+func nativeTrailingZeros32(x uint32) int {
+	if x == 0 {
+		return 32
+	}
+	return 31 - js.Global.Get("Math").Call("clz32", x&-x).Int()
+}
+
+func nativeLen32(x uint32) int {
+	return 32 - js.Global.Get("Math").Call("clz32", x).Int()
+}
+
+func nativeOnesCount32(x uint32) int {
+	x = x - ((x >> 1) & 0x55555555)
+	x = (x & 0x33333333) + ((x >> 2) & 0x33333333)
+	x = (x + (x >> 4)) & 0x0F0F0F0F
+	return int((x * 0x01010101) >> 24)
+}
+
+func nativeAdd32(x, y, carry uint32) (sum, carryOut uint32) {
+	total := float64(x) + float64(y) + float64(carry)
+	sum = uint32(total)
+	if total >= 4294967296.0 {
+		carryOut = 1
+	}
+	return
+}
+
+func nativeSub32(x, y, borrow uint32) (diff, borrowOut uint32) {
+	total := float64(x) - float64(y) - float64(borrow)
+	diff = uint32(total)
+	if total < 0 {
+		borrowOut = 1
+	}
+	return
+}
+
+func nativeMul32(x, y uint32) (hi, lo uint32) {
+	xf := float64(x)
+	yLo := float64(y & 0xFFFF)
+	yHi := float64(y >> 16)
+
+	// Both products are exact since each factor is < 2^16 on the y side and
+	// < 2^32 on the x side, so the product is < 2^48 (fits in float64 mantissa).
+	lo48 := xf * yLo
+	hi48 := xf * yHi
+
+	// Decompose hi48 into the bottom 16 bits (which contribute to bits 16-31
+	// of the full product) and the remaining 32 bits (bits 32-63).
+	hi48Div16 := math.Floor(hi48 / 65536.0)
+	hi48Mod16 := hi48 - hi48Div16*65536.0
+
+	// mid is lo48 plus the contribution of the bottom 16 bits of hi48
+	// shifted left by 16. Still ≤ 2^48 + 2^32, so exact in float64.
+	mid := lo48 + hi48Mod16*65536.0
+	lo = uint32(mid)
+	hi = uint32(math.Floor(mid/4294967296.0) + hi48Div16)
+	return
+}
+
+func nativeLeadingZeros64(x uint64) int {
+	hi := js.InternalObject(x).Get("$high").Float()
+	if hi != 0 {
+		return js.Global.Get("Math").Call("clz32", hi).Int()
+	}
+	lo := js.InternalObject(x).Get("$low").Float()
+	return 32 + js.Global.Get("Math").Call("clz32", lo).Int()
+}
+
+func nativeTrailingZeros64(x uint64) int {
+	lo := uint32(js.InternalObject(x).Get("$low").Float())
+	if lo != 0 {
+		return 31 - js.Global.Get("Math").Call("clz32", lo&-lo).Int()
+	}
+	hi := uint32(js.InternalObject(x).Get("$high").Float())
+	if hi == 0 {
+		return 64
+	}
+	return 32 + 31 - js.Global.Get("Math").Call("clz32", hi&-hi).Int()
+}
+
+func nativeLen64(x uint64) int {
+	return 64 - nativeLeadingZeros64(x)
+}
+
+func nativeOnesCount64(x uint64) int {
+	hi := uint32(js.InternalObject(x).Get("$high").Float())
+	lo := uint32(js.InternalObject(x).Get("$low").Float())
+	return nativeOnesCount32(hi) + nativeOnesCount32(lo)
+}
+
+func nativeAdd64(x, y, carry uint64) (sum, carryOut uint64) {
+	xHi := js.InternalObject(x).Get("$high").Float()
+	xLo := js.InternalObject(x).Get("$low").Float()
+	yHi := js.InternalObject(y).Get("$high").Float()
+	yLo := js.InternalObject(y).Get("$low").Float()
+	cLo := js.InternalObject(carry).Get("$low").Float()
+
+	lowSum := xLo + yLo + cLo // ≤ 2^33 - 1, exact in float64
+	sumLo := uint32(lowSum)
+	lowCarry := math.Floor(lowSum / 4294967296.0) // 0 or 1
+
+	highSum := xHi + yHi + lowCarry // ≤ 2^33 - 1, exact in float64
+	sumHi := uint32(highSum)
+	highCarry := uint32(math.Floor(highSum / 4294967296.0)) // 0 or 1
+
+	sum = uint64(sumHi)<<32 | uint64(sumLo)
+	carryOut = uint64(highCarry)
+	return
+}
+
+func nativeSub64(x, y, borrow uint64) (diff, borrowOut uint64) {
+	xHi := js.InternalObject(x).Get("$high").Float()
+	xLo := js.InternalObject(x).Get("$low").Float()
+	yHi := js.InternalObject(y).Get("$high").Float()
+	yLo := js.InternalObject(y).Get("$low").Float()
+	bLo := js.InternalObject(borrow).Get("$low").Float()
+
+	lowDiff := xLo - yLo - bLo // range: -(2^32) to 2^32-1
+	diffLo := uint32(lowDiff)
+	var lowBorrow float64
+	if lowDiff < 0 {
+		lowBorrow = 1
+	}
+
+	highDiff := xHi - yHi - lowBorrow
+	diffHi := uint32(highDiff)
+	var highBorrow uint32
+	if highDiff < 0 {
+		highBorrow = 1
+	}
+
+	diff = uint64(diffHi)<<32 | uint64(diffLo)
+	borrowOut = uint64(highBorrow)
+	return
+}
+
+// =============================================================================
+// Test inputs and TestNativeBits to verify each nativeX matches bits.X.
+// =============================================================================
+
+const (
+	nativeBitsBenchSize = 1024
+	nativeBitsBenchSeed = 0xC0FFEE
+)
+
+type nativeBitsInputs struct {
+	xs32, ys32, cs32 []uint32
+	xs64, ys64, cs64 []uint64
+}
+
+func generateNativeBitsInputs() *nativeBitsInputs {
+	r := rand.New(rand.NewSource(nativeBitsBenchSeed))
+	in := &nativeBitsInputs{
+		xs32: make([]uint32, nativeBitsBenchSize),
+		ys32: make([]uint32, nativeBitsBenchSize),
+		cs32: make([]uint32, nativeBitsBenchSize),
+		xs64: make([]uint64, nativeBitsBenchSize),
+		ys64: make([]uint64, nativeBitsBenchSize),
+		cs64: make([]uint64, nativeBitsBenchSize),
+	}
+	for i := 0; i < nativeBitsBenchSize; i++ {
+		in.xs32[i] = r.Uint32()
+		in.ys32[i] = r.Uint32()
+		in.cs32[i] = r.Uint32() & 1 // carry/borrow must be 0 or 1
+		in.xs64[i] = r.Uint64()
+		in.ys64[i] = r.Uint64()
+		in.cs64[i] = r.Uint64() & 1
+	}
+	return in
+}
+
+func TestNative_Bits_Bits(t *testing.T) {
+	if runtime.GOOS != "js" {
+		t.Skip("native bit functions use JS-specific features")
+	}
+
+	in := generateNativeBitsInputs()
+
+	for i := 0; i < nativeBitsBenchSize; i++ {
+		x32 := in.xs32[i]
+		y32 := in.ys32[i]
+		c32 := in.cs32[i]
+		x64 := in.xs64[i]
+		y64 := in.ys64[i]
+		c64 := in.cs64[i]
+
+		if got, want := nativeLeadingZeros32(x32), bits.LeadingZeros32(x32); got != want {
+			t.Errorf("nativeLeadingZeros32(0x%08x) = %d, want %d", x32, got, want)
+		}
+		if got, want := nativeTrailingZeros32(x32), bits.TrailingZeros32(x32); got != want {
+			t.Errorf("nativeTrailingZeros32(0x%08x) = %d, want %d", x32, got, want)
+		}
+		if got, want := nativeLen32(x32), bits.Len32(x32); got != want {
+			t.Errorf("nativeLen32(0x%08x) = %d, want %d", x32, got, want)
+		}
+		if got, want := nativeOnesCount32(x32), bits.OnesCount32(x32); got != want {
+			t.Errorf("nativeOnesCount32(0x%08x) = %d, want %d", x32, got, want)
+		}
+
+		wantSum, wantCarry := bits.Add32(x32, y32, c32)
+		gotSum, gotCarry := nativeAdd32(x32, y32, c32)
+		if gotSum != wantSum || gotCarry != wantCarry {
+			t.Errorf("nativeAdd32(0x%08x, 0x%08x, %d) = (0x%08x, %d), want (0x%08x, %d)",
+				x32, y32, c32, gotSum, gotCarry, wantSum, wantCarry)
+		}
+		wantDiff, wantBorrow := bits.Sub32(x32, y32, c32)
+		gotDiff, gotBorrow := nativeSub32(x32, y32, c32)
+		if gotDiff != wantDiff || gotBorrow != wantBorrow {
+			t.Errorf("nativeSub32(0x%08x, 0x%08x, %d) = (0x%08x, %d), want (0x%08x, %d)",
+				x32, y32, c32, gotDiff, gotBorrow, wantDiff, wantBorrow)
+		}
+		wantHi32, wantLo32 := bits.Mul32(x32, y32)
+		gotHi32, gotLo32 := nativeMul32(x32, y32)
+		if gotHi32 != wantHi32 || gotLo32 != wantLo32 {
+			t.Errorf("nativeMul32(0x%08x, 0x%08x) = (0x%08x, 0x%08x), want (0x%08x, 0x%08x)",
+				x32, y32, gotHi32, gotLo32, wantHi32, wantLo32)
+		}
+
+		if got, want := nativeLeadingZeros64(x64), bits.LeadingZeros64(x64); got != want {
+			t.Errorf("nativeLeadingZeros64(0x%016x) = %d, want %d", x64, got, want)
+		}
+		if got, want := nativeTrailingZeros64(x64), bits.TrailingZeros64(x64); got != want {
+			t.Errorf("nativeTrailingZeros64(0x%016x) = %d, want %d", x64, got, want)
+		}
+		if got, want := nativeLen64(x64), bits.Len64(x64); got != want {
+			t.Errorf("nativeLen64(0x%016x) = %d, want %d", x64, got, want)
+		}
+		if got, want := nativeOnesCount64(x64), bits.OnesCount64(x64); got != want {
+			t.Errorf("nativeOnesCount64(0x%016x) = %d, want %d", x64, got, want)
+		}
+
+		wantSum64, wantCarry64 := bits.Add64(x64, y64, c64)
+		gotSum64, gotCarry64 := nativeAdd64(x64, y64, c64)
+		if gotSum64 != wantSum64 || gotCarry64 != wantCarry64 {
+			t.Errorf("nativeAdd64(0x%016x, 0x%016x, %d) = (0x%016x, %d), want (0x%016x, %d)",
+				x64, y64, c64, gotSum64, gotCarry64, wantSum64, wantCarry64)
+		}
+		wantDiff64, wantBorrow64 := bits.Sub64(x64, y64, c64)
+		gotDiff64, gotBorrow64 := nativeSub64(x64, y64, c64)
+		if gotDiff64 != wantDiff64 || gotBorrow64 != wantBorrow64 {
+			t.Errorf("nativeSub64(0x%016x, 0x%016x, %d) = (0x%016x, %d), want (0x%016x, %d)",
+				x64, y64, c64, gotDiff64, gotBorrow64, wantDiff64, wantBorrow64)
+		}
+	}
+}
+
+// =============================================================================
+// Benchmarks: each one compares bits.X to nativeX over the same shared inputs.
+// =============================================================================
+
+func Benchmark_Bits_LeadingZeros32(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(bits.LeadingZeros32(in.xs32[i%nativeBitsBenchSize]))
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(nativeLeadingZeros32(in.xs32[i%nativeBitsBenchSize]))
+		}
+	})
+}
+
+func Benchmark_Bits_TrailingZeros32(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(bits.TrailingZeros32(in.xs32[i%nativeBitsBenchSize]))
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(nativeTrailingZeros32(in.xs32[i%nativeBitsBenchSize]))
+		}
+	})
+}
+
+func Benchmark_Bits_Len32(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(bits.Len32(in.xs32[i%nativeBitsBenchSize]))
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(nativeLen32(in.xs32[i%nativeBitsBenchSize]))
+		}
+	})
+}
+
+func Benchmark_Bits_OnesCount32(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(bits.OnesCount32(in.xs32[i%nativeBitsBenchSize]))
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(nativeOnesCount32(in.xs32[i%nativeBitsBenchSize]))
+		}
+	})
+}
+
+func Benchmark_Bits_Add32(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			j := i % nativeBitsBenchSize
+			s, c := bits.Add32(in.xs32[j], in.ys32[j], in.cs32[j])
+			runtime.KeepAlive(s)
+			runtime.KeepAlive(c)
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			j := i % nativeBitsBenchSize
+			s, c := nativeAdd32(in.xs32[j], in.ys32[j], in.cs32[j])
+			runtime.KeepAlive(s)
+			runtime.KeepAlive(c)
+		}
+	})
+}
+
+func Benchmark_Bits_Sub32(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			j := i % nativeBitsBenchSize
+			d, br := bits.Sub32(in.xs32[j], in.ys32[j], in.cs32[j])
+			runtime.KeepAlive(d)
+			runtime.KeepAlive(br)
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			j := i % nativeBitsBenchSize
+			d, br := nativeSub32(in.xs32[j], in.ys32[j], in.cs32[j])
+			runtime.KeepAlive(d)
+			runtime.KeepAlive(br)
+		}
+	})
+}
+
+func Benchmark_Bits_Mul32(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			j := i % nativeBitsBenchSize
+			h, l := bits.Mul32(in.xs32[j], in.ys32[j])
+			runtime.KeepAlive(h)
+			runtime.KeepAlive(l)
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			j := i % nativeBitsBenchSize
+			h, l := nativeMul32(in.xs32[j], in.ys32[j])
+			runtime.KeepAlive(h)
+			runtime.KeepAlive(l)
+		}
+	})
+}
+
+func Benchmark_Bits_LeadingZeros64(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(bits.LeadingZeros64(in.xs64[i%nativeBitsBenchSize]))
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(nativeLeadingZeros64(in.xs64[i%nativeBitsBenchSize]))
+		}
+	})
+}
+
+func Benchmark_Bits_TrailingZeros64(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(bits.TrailingZeros64(in.xs64[i%nativeBitsBenchSize]))
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(nativeTrailingZeros64(in.xs64[i%nativeBitsBenchSize]))
+		}
+	})
+}
+
+func Benchmark_Bits_Len64(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(bits.Len64(in.xs64[i%nativeBitsBenchSize]))
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(nativeLen64(in.xs64[i%nativeBitsBenchSize]))
+		}
+	})
+}
+
+func Benchmark_Bits_OnesCount64(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(bits.OnesCount64(in.xs64[i%nativeBitsBenchSize]))
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runtime.KeepAlive(nativeOnesCount64(in.xs64[i%nativeBitsBenchSize]))
+		}
+	})
+}
+
+func Benchmark_Bits_Add64(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			j := i % nativeBitsBenchSize
+			s, c := bits.Add64(in.xs64[j], in.ys64[j], in.cs64[j])
+			runtime.KeepAlive(s)
+			runtime.KeepAlive(c)
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			j := i % nativeBitsBenchSize
+			s, c := nativeAdd64(in.xs64[j], in.ys64[j], in.cs64[j])
+			runtime.KeepAlive(s)
+			runtime.KeepAlive(c)
+		}
+	})
+}
+
+func Benchmark_Bits_Sub64(b *testing.B) {
+	in := generateNativeBitsInputs()
+	b.Run("bits", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			j := i % nativeBitsBenchSize
+			d, br := bits.Sub64(in.xs64[j], in.ys64[j], in.cs64[j])
+			runtime.KeepAlive(d)
+			runtime.KeepAlive(br)
+		}
+	})
+	b.Run("native", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			j := i % nativeBitsBenchSize
+			d, br := nativeSub64(in.xs64[j], in.ys64[j], in.cs64[j])
+			runtime.KeepAlive(d)
+			runtime.KeepAlive(br)
+		}
+	})
+}
