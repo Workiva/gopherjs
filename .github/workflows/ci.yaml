@@ -16,7 +16,7 @@ concurrency:
 
 env:
   GO_VERSION: 1.21.13
-  NODE_VERSION: 18
+  NODE_VERSION: 24
   GOLANGCI_VERSION: v1.59.1
   SOURCE_MAP_SUPPORT: true
   GOPATH: ${{ github.workspace }}/go
@@ -71,8 +71,6 @@ jobs:
     name: Darwin Smoke
     runs-on: macos-latest
     timeout-minutes: 10
-    env:
-      NODE_VERSION: 20
     steps:
       - uses: actions/checkout@v4
         with:
