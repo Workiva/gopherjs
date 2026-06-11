@@ -118,6 +118,16 @@ func Test_parseCallFrame(t *testing.T) {
 			input: "at https://example.com/angular.min.js:31:225",
 			want:  callFrame{FuncName: "<none>", File: "https://example.com/angular.min.js", Line: 31, Col: 225},
 		},
+		{
+			name:  "Node.js 24+ (V8) receiver prefix for package-level function",
+			input: "at Object.runtime.Callers (runtime.go:42:3)",
+			want:  callFrame{FuncName: "runtime.Callers", File: "runtime.go", Line: 42, Col: 3},
+		},
+		{
+			name:  "Node.js 24+ (V8) receiver prefix for function on type",
+			input: "at typ2.github.com/gopherjs/gopherjs/tests.callStack.capture (runtime.go:42:3)",
+			want:  callFrame{FuncName: "github.com/gopherjs/gopherjs/tests.callStack.capture", File: "runtime.go", Line: 42, Col: 3},
+		},
 	}
 
 	for _, tt := range tests {

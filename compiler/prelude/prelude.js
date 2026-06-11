@@ -138,6 +138,16 @@ var $parseCallFrame = (frame) => {
         }
         return [fnName, "", 0, 0];
     }
+
+    // Node.js 24+ (V8) includes the receiver object name in stack traces,
+    // e.g., "Object.runtime.Callers" and "typ2.github.com/...".
+    // The `typ2` comes from prelude\types.js in `$newType`. The `typ`
+    // in that function gets renamed by esbuild to `typ2`.
+    const receiverRe = /^(?:Object|typ\d*)\./;
+    const stripReceiver = (fnName) => {
+        return fnName.replace(receiverRe, "");
+    }
+
     $parseCallFrame = (frame) => {
         // FireFox
         const atIdx = frame.indexOf("@")
@@ -163,6 +173,7 @@ var $parseCallFrame = (frame) => {
             if (closeIdx === -1) closeIdx = fnName.length;
             fnName = fnName.substring(asIdx+4, closeIdx).trim();
         }
+        fnName = stripReceiver(fnName)
 
         var closeIdx = frame.indexOf(")", openIdx);
         if (closeIdx === -1) closeIdx = frame.length;
