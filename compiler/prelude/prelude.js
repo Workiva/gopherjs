@@ -144,9 +144,7 @@ var $parseCallFrame = (frame) => {
     // The `typ2` comes from prelude\types.js in `$newType`. The `typ`
     // in that function gets renamed by esbuild to `typ2`.
     const receiverRe = /^(?:Object|typ\d*)\./;
-    const stripReceiver = (fnName) => {
-        return fnName.replace(receiverRe, "");
-    }
+    const stripReceiver = (fnName) => fnName.replace(receiverRe, "");
 
     $parseCallFrame = (frame) => {
         // FireFox
