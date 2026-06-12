@@ -476,324 +476,261 @@ func nativeSub64(x, y, borrow uint64) (diff, borrowOut uint64) {
 // Test inputs and TestNativeBits to verify each nativeX matches bits.X.
 // =============================================================================
 
-const (
-	nativeBitsBenchSize = 1024
-	nativeBitsBenchSeed = 0xC0FFEE
-)
-
-type nativeBitsInputs struct {
-	xs32, ys32, cs32 []uint32
-	xs64, ys64, cs64 []uint64
+type nativeBitsTestArg struct {
+	inX32, inY32, inC32 uint32
+	inX64, inY64, inC64 uint64
+	outI                int
+	outX32, outY32      uint32
+	outX64, outY64      uint64
 }
 
-func generateNativeBitsInputs() *nativeBitsInputs {
-	r := rand.New(rand.NewSource(nativeBitsBenchSeed))
-	in := &nativeBitsInputs{
-		xs32: make([]uint32, nativeBitsBenchSize),
-		ys32: make([]uint32, nativeBitsBenchSize),
-		cs32: make([]uint32, nativeBitsBenchSize),
-		xs64: make([]uint64, nativeBitsBenchSize),
-		ys64: make([]uint64, nativeBitsBenchSize),
-		cs64: make([]uint64, nativeBitsBenchSize),
-	}
-	for i := 0; i < nativeBitsBenchSize; i++ {
-		in.xs32[i] = r.Uint32()
-		in.ys32[i] = r.Uint32()
-		in.cs32[i] = r.Uint32() & 1 // carry/borrow must be 0 or 1
-		in.xs64[i] = r.Uint64()
-		in.ys64[i] = r.Uint64()
-		in.cs64[i] = r.Uint64() & 1
+func generateNativeBitsInputs(count int, seed int64) []*nativeBitsTestArg {
+	r := rand.New(rand.NewSource(seed))
+	in := make([]*nativeBitsTestArg, count)
+	for i := 0; i < count; i++ {
+		in[i] = &nativeBitsTestArg{
+			inX32: r.Uint32(),
+			inY32: r.Uint32(),
+			inC32: r.Uint32() & 1, // carry or borrow must be 0 or 1
+			inX64: r.Uint64(),
+			inY64: r.Uint64(),
+			inC64: r.Uint64() & 1,
+		}
 	}
 	return in
 }
 
-func TestNative_Bits_Bits(t *testing.T) {
+type nativeBitsTestHandle func(*nativeBitsTestArg)
+
+type nativeBitsTest struct {
+	name     string
+	format   func(*nativeBitsTestArg) string
+	original nativeBitsTestHandle
+	native   nativeBitsTestHandle
+}
+
+func nativeBitsTests() []nativeBitsTest {
+	return []nativeBitsTest{
+		{
+			name: `LeadingZero32`,
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`LeadingZero32(%04x) => %d`, arg.inX32, arg.outI)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outI = bits.LeadingZeros32(arg.inX32)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outI = nativeLeadingZeros32(arg.inX32)
+			},
+		},
+		{
+			name: `TrailingZeros32`,
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`TrailingZeros32(%04x) => %d`, arg.inX32, arg.outI)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outI = bits.TrailingZeros32(arg.inX32)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outI = nativeTrailingZeros32(arg.inX32)
+			},
+		},
+		{
+			name: `Len32`,
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`Len32(%04x) => %d`, arg.inX32, arg.outI)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outI = bits.Len32(arg.inX32)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outI = nativeLen32(arg.inX32)
+			},
+		},
+		{
+			name: `OnesCount32`,
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`OnesCount32(%04x) => %d`, arg.inX32, arg.outI)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outI = bits.OnesCount32(arg.inX32)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outI = nativeOnesCount32(arg.inX32)
+			},
+		},
+		{
+			name: `Add32`,
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`Add32(%04x, %04x, %x) => (%04x, %x)`, arg.inX32, arg.inY32, arg.inC32, arg.outX32, arg.outY32)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outX32, arg.outY32 = bits.Add32(arg.inX32, arg.inY32, arg.inC32)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outX32, arg.outY32 = nativeAdd32(arg.inX32, arg.inY32, arg.inC32)
+			},
+		},
+		{
+			name: `Sub32`,
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`Sub32(%04x, %04x, %x) => (%04x, %x)`, arg.inX32, arg.inY32, arg.inC32, arg.outX32, arg.outY32)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outX32, arg.outY32 = bits.Sub32(arg.inX32, arg.inY32, arg.inC32)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outX32, arg.outY32 = nativeSub32(arg.inX32, arg.inY32, arg.inC32)
+			},
+		},
+		{
+			name: "Mul32",
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`Mul32(%04x, %04x) => (%04x, %x)`, arg.inX32, arg.inY32, arg.outX32, arg.outY32)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outX32, arg.outY32 = bits.Mul32(arg.inX32, arg.inY32)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outX32, arg.outY32 = nativeMul32(arg.inX32, arg.inY32)
+			},
+		},
+		{
+			name: "LeadingZeros64",
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`LeadingZeros64(%08x) => %d`, arg.inX64, arg.outI)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outI = bits.LeadingZeros64(arg.inX64)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outI = nativeLeadingZeros64(arg.inX64)
+			},
+		},
+		{
+			name: "TrailingZeros64",
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`TrailingZeros64(%08x) => %d`, arg.inX64, arg.outI)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outI = bits.TrailingZeros64(arg.inX64)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outI = nativeTrailingZeros64(arg.inX64)
+			},
+		},
+		{
+			name: "Len64",
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`Len64(%08x) => %d`, arg.inX64, arg.outI)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outI = bits.Len64(arg.inX64)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outI = nativeLen64(arg.inX64)
+			},
+		},
+		{
+			name: "OnesCount64",
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`OnesCount64(%08x) => %d`, arg.inX64, arg.outI)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outI = bits.OnesCount64(arg.inX64)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outI = nativeOnesCount64(arg.inX64)
+			},
+		},
+		{
+			name: "Add64",
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`Add64(%08x, %08x, %x) => (%08x, %x)`, arg.inX64, arg.inY64, arg.inC64, arg.outX64, arg.outY64)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outX64, arg.outY64 = bits.Add64(arg.inX64, arg.inY64, arg.inC64)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outX64, arg.outY64 = nativeAdd64(arg.inX64, arg.inY64, arg.inC64)
+			},
+		},
+		{
+			name: "Sub64",
+			format: func(arg *nativeBitsTestArg) string {
+				return fmt.Sprintf(`Sub64(%08x, %08x, %x) => (%08x, %x)`, arg.inX64, arg.inY64, arg.inC64, arg.outX64, arg.outY64)
+			},
+			original: func(arg *nativeBitsTestArg) {
+				arg.outX64, arg.outY64 = bits.Sub64(arg.inX64, arg.inY64, arg.inC64)
+			},
+			native: func(arg *nativeBitsTestArg) {
+				arg.outX64, arg.outY64 = nativeSub64(arg.inX64, arg.inY64, arg.inC64)
+			},
+		},
+	}
+}
+
+const (
+	nativeBitsBenchSize  = 1024
+	nativeBitsBenchSeed  = 0xC0FFEE
+	nativeBitsTrialCount = 1
+)
+
+func Test_NativeBits(t *testing.T) {
 	if runtime.GOOS != "js" {
 		t.Skip("native bit functions use JS-specific features")
 	}
 
-	in := generateNativeBitsInputs()
-
-	for i := 0; i < nativeBitsBenchSize; i++ {
-		x32 := in.xs32[i]
-		y32 := in.ys32[i]
-		c32 := in.cs32[i]
-		x64 := in.xs64[i]
-		y64 := in.ys64[i]
-		c64 := in.cs64[i]
-
-		if got, want := nativeLeadingZeros32(x32), bits.LeadingZeros32(x32); got != want {
-			t.Errorf("nativeLeadingZeros32(0x%08x) = %d, want %d", x32, got, want)
-		}
-		if got, want := nativeTrailingZeros32(x32), bits.TrailingZeros32(x32); got != want {
-			t.Errorf("nativeTrailingZeros32(0x%08x) = %d, want %d", x32, got, want)
-		}
-		if got, want := nativeLen32(x32), bits.Len32(x32); got != want {
-			t.Errorf("nativeLen32(0x%08x) = %d, want %d", x32, got, want)
-		}
-		if got, want := nativeOnesCount32(x32), bits.OnesCount32(x32); got != want {
-			t.Errorf("nativeOnesCount32(0x%08x) = %d, want %d", x32, got, want)
-		}
-
-		wantSum, wantCarry := bits.Add32(x32, y32, c32)
-		gotSum, gotCarry := nativeAdd32(x32, y32, c32)
-		if gotSum != wantSum || gotCarry != wantCarry {
-			t.Errorf("nativeAdd32(0x%08x, 0x%08x, %d) = (0x%08x, %d), want (0x%08x, %d)",
-				x32, y32, c32, gotSum, gotCarry, wantSum, wantCarry)
-		}
-		wantDiff, wantBorrow := bits.Sub32(x32, y32, c32)
-		gotDiff, gotBorrow := nativeSub32(x32, y32, c32)
-		if gotDiff != wantDiff || gotBorrow != wantBorrow {
-			t.Errorf("nativeSub32(0x%08x, 0x%08x, %d) = (0x%08x, %d), want (0x%08x, %d)",
-				x32, y32, c32, gotDiff, gotBorrow, wantDiff, wantBorrow)
-		}
-		wantHi32, wantLo32 := bits.Mul32(x32, y32)
-		gotHi32, gotLo32 := nativeMul32(x32, y32)
-		if gotHi32 != wantHi32 || gotLo32 != wantLo32 {
-			t.Errorf("nativeMul32(0x%08x, 0x%08x) = (0x%08x, 0x%08x), want (0x%08x, 0x%08x)",
-				x32, y32, gotHi32, gotLo32, wantHi32, wantLo32)
-		}
-
-		if got, want := nativeLeadingZeros64(x64), bits.LeadingZeros64(x64); got != want {
-			t.Errorf("nativeLeadingZeros64(0x%016x) = %d, want %d", x64, got, want)
-		}
-		if got, want := nativeTrailingZeros64(x64), bits.TrailingZeros64(x64); got != want {
-			t.Errorf("nativeTrailingZeros64(0x%016x) = %d, want %d", x64, got, want)
-		}
-		if got, want := nativeLen64(x64), bits.Len64(x64); got != want {
-			t.Errorf("nativeLen64(0x%016x) = %d, want %d", x64, got, want)
-		}
-		if got, want := nativeOnesCount64(x64), bits.OnesCount64(x64); got != want {
-			t.Errorf("nativeOnesCount64(0x%016x) = %d, want %d", x64, got, want)
-		}
-
-		wantSum64, wantCarry64 := bits.Add64(x64, y64, c64)
-		gotSum64, gotCarry64 := nativeAdd64(x64, y64, c64)
-		if gotSum64 != wantSum64 || gotCarry64 != wantCarry64 {
-			t.Errorf("nativeAdd64(0x%016x, 0x%016x, %d) = (0x%016x, %d), want (0x%016x, %d)",
-				x64, y64, c64, gotSum64, gotCarry64, wantSum64, wantCarry64)
-		}
-		wantDiff64, wantBorrow64 := bits.Sub64(x64, y64, c64)
-		gotDiff64, gotBorrow64 := nativeSub64(x64, y64, c64)
-		if gotDiff64 != wantDiff64 || gotBorrow64 != wantBorrow64 {
-			t.Errorf("nativeSub64(0x%016x, 0x%016x, %d) = (0x%016x, %d), want (0x%016x, %d)",
-				x64, y64, c64, gotDiff64, gotBorrow64, wantDiff64, wantBorrow64)
-		}
+	ins := generateNativeBitsInputs(nativeBitsBenchSize, nativeBitsBenchSeed)
+	tests := nativeBitsTests()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for i, in := range ins {
+				want := *in
+				test.original(&want)
+				got := *in
+				test.native(&got)
+				if want != got {
+					t.Errorf("unexpected results from %s at %d:\n\twant: %s\n\tgot:  %s\n",
+						test.name, i, test.format(&want), test.format(&got))
+				}
+			}
+		})
 	}
 }
 
-// =============================================================================
-// Benchmarks: each one compares bits.X to nativeX over the same shared inputs.
-// =============================================================================
+func Benchmark_NativeBits(b *testing.B) {
+	if runtime.GOOS != "js" {
+		b.Skip("native bit functions use JS-specific features")
+	}
 
-func Benchmark_Bits_LeadingZeros32(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(bits.LeadingZeros32(in.xs32[i%nativeBitsBenchSize]))
+	tests := nativeBitsTests()
+	type chunk struct {
+		name   string
+		handle nativeBitsTestHandle
+	}
+	chunks := make([]chunk, 0, 2*nativeBitsTrialCount*len(tests))
+	for trial := 0; trial < nativeBitsTrialCount; trial++ {
+		for _, test := range tests {
+			chunks = append(chunks, chunk{
+				name:   fmt.Sprintf(`original.%s.%d`, test.name, trial),
+				handle: test.original,
+			}, chunk{
+				name:   fmt.Sprintf(`native.%s.%d`, test.name, trial),
+				handle: test.native,
+			})
 		}
+	}
+	rand.Shuffle(len(chunks), func(i, j int) {
+		chunks[i], chunks[j] = chunks[j], chunks[i]
 	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(nativeLeadingZeros32(in.xs32[i%nativeBitsBenchSize]))
-		}
-	})
-}
 
-func Benchmark_Bits_TrailingZeros32(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(bits.TrailingZeros32(in.xs32[i%nativeBitsBenchSize]))
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(nativeTrailingZeros32(in.xs32[i%nativeBitsBenchSize]))
-		}
-	})
-}
-
-func Benchmark_Bits_Len32(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(bits.Len32(in.xs32[i%nativeBitsBenchSize]))
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(nativeLen32(in.xs32[i%nativeBitsBenchSize]))
-		}
-	})
-}
-
-func Benchmark_Bits_OnesCount32(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(bits.OnesCount32(in.xs32[i%nativeBitsBenchSize]))
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(nativeOnesCount32(in.xs32[i%nativeBitsBenchSize]))
-		}
-	})
-}
-
-func Benchmark_Bits_Add32(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			j := i % nativeBitsBenchSize
-			s, c := bits.Add32(in.xs32[j], in.ys32[j], in.cs32[j])
-			runtime.KeepAlive(s)
-			runtime.KeepAlive(c)
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			j := i % nativeBitsBenchSize
-			s, c := nativeAdd32(in.xs32[j], in.ys32[j], in.cs32[j])
-			runtime.KeepAlive(s)
-			runtime.KeepAlive(c)
-		}
-	})
-}
-
-func Benchmark_Bits_Sub32(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			j := i % nativeBitsBenchSize
-			d, br := bits.Sub32(in.xs32[j], in.ys32[j], in.cs32[j])
-			runtime.KeepAlive(d)
-			runtime.KeepAlive(br)
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			j := i % nativeBitsBenchSize
-			d, br := nativeSub32(in.xs32[j], in.ys32[j], in.cs32[j])
-			runtime.KeepAlive(d)
-			runtime.KeepAlive(br)
-		}
-	})
-}
-
-func Benchmark_Bits_Mul32(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			j := i % nativeBitsBenchSize
-			h, l := bits.Mul32(in.xs32[j], in.ys32[j])
-			runtime.KeepAlive(h)
-			runtime.KeepAlive(l)
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			j := i % nativeBitsBenchSize
-			h, l := nativeMul32(in.xs32[j], in.ys32[j])
-			runtime.KeepAlive(h)
-			runtime.KeepAlive(l)
-		}
-	})
-}
-
-func Benchmark_Bits_LeadingZeros64(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(bits.LeadingZeros64(in.xs64[i%nativeBitsBenchSize]))
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(nativeLeadingZeros64(in.xs64[i%nativeBitsBenchSize]))
-		}
-	})
-}
-
-func Benchmark_Bits_TrailingZeros64(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(bits.TrailingZeros64(in.xs64[i%nativeBitsBenchSize]))
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(nativeTrailingZeros64(in.xs64[i%nativeBitsBenchSize]))
-		}
-	})
-}
-
-func Benchmark_Bits_Len64(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(bits.Len64(in.xs64[i%nativeBitsBenchSize]))
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(nativeLen64(in.xs64[i%nativeBitsBenchSize]))
-		}
-	})
-}
-
-func Benchmark_Bits_OnesCount64(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(bits.OnesCount64(in.xs64[i%nativeBitsBenchSize]))
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runtime.KeepAlive(nativeOnesCount64(in.xs64[i%nativeBitsBenchSize]))
-		}
-	})
-}
-
-func Benchmark_Bits_Add64(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			j := i % nativeBitsBenchSize
-			s, c := bits.Add64(in.xs64[j], in.ys64[j], in.cs64[j])
-			runtime.KeepAlive(s)
-			runtime.KeepAlive(c)
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			j := i % nativeBitsBenchSize
-			s, c := nativeAdd64(in.xs64[j], in.ys64[j], in.cs64[j])
-			runtime.KeepAlive(s)
-			runtime.KeepAlive(c)
-		}
-	})
-}
-
-func Benchmark_Bits_Sub64(b *testing.B) {
-	in := generateNativeBitsInputs()
-	b.Run("bits", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			j := i % nativeBitsBenchSize
-			d, br := bits.Sub64(in.xs64[j], in.ys64[j], in.cs64[j])
-			runtime.KeepAlive(d)
-			runtime.KeepAlive(br)
-		}
-	})
-	b.Run("native", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			j := i % nativeBitsBenchSize
-			d, br := nativeSub64(in.xs64[j], in.ys64[j], in.cs64[j])
-			runtime.KeepAlive(d)
-			runtime.KeepAlive(br)
-		}
-	})
+	ins := generateNativeBitsInputs(nativeBitsBenchSize, nativeBitsBenchSeed)
+	for _, c := range chunks {
+		b.Run(c.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				c.handle(ins[i%nativeBitsBenchSize])
+			}
+		})
+	}
 }
