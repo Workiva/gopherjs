@@ -2,6 +2,8 @@
 
 package bits
 
+import "github.com/gopherjs/gopherjs/js"
+
 type _err string
 
 func (e _err) Error() string {
@@ -17,6 +19,25 @@ var (
 	divideError   error = _err("runtime error: integer divide by zero")
 )
 
+//gopherjs:replace
+func LeadingZeros32(x uint32) int {
+	return js.Global.Get("Math").Call("clz32", x).Int()
+}
+
+//gopherjs:replace
+func TrailingZeros32(x uint32) int {
+	if x == 0 {
+		return 32
+	}
+	return 31 - js.Global.Get("Math").Call("clz32", x&-x).Int()
+}
+
+//gopherjs:replace
+func Len32(x uint32) int {
+	return 32 - js.Global.Get("Math").Call("clz32", x).Int()
+}
+
+//gopherjs:replace
 func Mul32(x, y uint32) (hi, lo uint32) {
 	// Avoid slow 64-bit integers for better performance. Adapted from Mul64().
 	const mask16 = 1<<16 - 1
@@ -34,6 +55,7 @@ func Mul32(x, y uint32) (hi, lo uint32) {
 	return
 }
 
+//gopherjs:replace
 func Add32(x, y, carry uint32) (sum, carryOut uint32) {
 	// Avoid slow 64-bit integers for better performance. Adapted from Add64().
 	sum = x + y + carry
@@ -41,6 +63,7 @@ func Add32(x, y, carry uint32) (sum, carryOut uint32) {
 	return
 }
 
+//gopherjs:replace
 func Div32(hi, lo, y uint32) (quo, rem uint32) {
 	// Avoid slow 64-bit integers for better performance. Adapted from Div64().
 	const (
@@ -89,6 +112,7 @@ func Div32(hi, lo, y uint32) (quo, rem uint32) {
 	return q1*two16 + q0, (un21*two16 + un0 - q0*y) >> s
 }
 
+//gopherjs:replace
 func Rem32(hi, lo, y uint32) uint32 {
 	// We scale down hi so that hi < y, then use Div32 to compute the
 	// rem with the guarantee that it won't panic on quotient overflow.

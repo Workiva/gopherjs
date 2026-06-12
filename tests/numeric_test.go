@@ -332,21 +332,6 @@ func Test_MinMax(t *testing.T) {
 // compiler/natives. They are JS-only.
 // =============================================================================
 
-func nativeLeadingZeros32(x uint32) int {
-	return js.Global.Get("Math").Call("clz32", x).Int()
-}
-
-func nativeTrailingZeros32(x uint32) int {
-	if x == 0 {
-		return 32
-	}
-	return 31 - js.Global.Get("Math").Call("clz32", x&-x).Int()
-}
-
-func nativeLen32(x uint32) int {
-	return 32 - js.Global.Get("Math").Call("clz32", x).Int()
-}
-
 func nativeOnesCount32(x uint32) int {
 	x = x - ((x >> 1) & 0x55555555)
 	x = (x & 0x33333333) + ((x >> 2) & 0x33333333)
@@ -396,20 +381,20 @@ func nativeMul32(x, y uint32) (hi, lo uint32) {
 }
 
 func nativeLeadingZeros64(x uint64) int {
-	hi := js.InternalObject(x).Get("$high").Float()
+	hi := js.Uint64High(x)
 	if hi != 0 {
 		return js.Global.Get("Math").Call("clz32", hi).Int()
 	}
-	lo := js.InternalObject(x).Get("$low").Float()
+	lo := js.Uint64Low(x)
 	return 32 + js.Global.Get("Math").Call("clz32", lo).Int()
 }
 
 func nativeTrailingZeros64(x uint64) int {
-	lo := uint32(js.InternalObject(x).Get("$low").Float())
+	lo := js.Uint64Low(x)
 	if lo != 0 {
 		return 31 - js.Global.Get("Math").Call("clz32", lo&-lo).Int()
 	}
-	hi := uint32(js.InternalObject(x).Get("$high").Float())
+	hi := js.Uint64High(x)
 	if hi == 0 {
 		return 64
 	}
@@ -421,54 +406,51 @@ func nativeLen64(x uint64) int {
 }
 
 func nativeOnesCount64(x uint64) int {
-	hi := uint32(js.InternalObject(x).Get("$high").Float())
-	lo := uint32(js.InternalObject(x).Get("$low").Float())
+	hi := js.Uint64High(x)
+	lo := js.Uint64Low(x)
 	return nativeOnesCount32(hi) + nativeOnesCount32(lo)
 }
 
 func nativeAdd64(x, y, carry uint64) (sum, carryOut uint64) {
-	xHi := js.InternalObject(x).Get("$high").Float()
-	xLo := js.InternalObject(x).Get("$low").Float()
-	yHi := js.InternalObject(y).Get("$high").Float()
-	yLo := js.InternalObject(y).Get("$low").Float()
-	cLo := js.InternalObject(carry).Get("$low").Float()
-
-	lowSum := xLo + yLo + cLo // ≤ 2^33 - 1, exact in float64
-	sumLo := uint32(lowSum)
-	lowCarry := math.Floor(lowSum / 4294967296.0) // 0 or 1
-
-	highSum := xHi + yHi + lowCarry // ≤ 2^33 - 1, exact in float64
-	sumHi := uint32(highSum)
-	highCarry := uint32(math.Floor(highSum / 4294967296.0)) // 0 or 1
-
-	sum = uint64(sumHi)<<32 | uint64(sumLo)
-	carryOut = uint64(highCarry)
+	// Use native uint64 arithmetic for the sum (each `+` is a single
+	// $Uint64 allocation in GopherJS). Then detect the carry-out by a
+	// uint64 comparison, which GopherJS inlines as a $high/$low compare
+	// with no extra allocation. This avoids the bit-formula
+	// `((x & y) | ((x | y) &^ sum)) >> 63` used by the standard library,
+	// which costs ~5 extra $Uint64 allocations.
+	//
+	//   - With carry == 0: carry-out happened iff sum < x.
+	//   - With carry == 1: carry-out happened iff sum <= x (sum can equal x
+	//     when y == 2^64-1 and the +1 from carry triggers the overflow).
+	sum = x + y + carry
+	if carry > 0 {
+		if sum <= x {
+			carryOut = 1
+		}
+	} else {
+		if sum < x {
+			carryOut = 1
+		}
+	}
 	return
 }
 
 func nativeSub64(x, y, borrow uint64) (diff, borrowOut uint64) {
-	xHi := js.InternalObject(x).Get("$high").Float()
-	xLo := js.InternalObject(x).Get("$low").Float()
-	yHi := js.InternalObject(y).Get("$high").Float()
-	yLo := js.InternalObject(y).Get("$low").Float()
-	bLo := js.InternalObject(borrow).Get("$low").Float()
-
-	lowDiff := xLo - yLo - bLo // range: -(2^32) to 2^32-1
-	diffLo := uint32(lowDiff)
-	var lowBorrow float64
-	if lowDiff < 0 {
-		lowBorrow = 1
+	// Same idea as nativeAdd64: native uint64 ops for the diff, comparison
+	// for the borrow.
+	//
+	//   - With borrow == 0: borrow-out happened iff x < y.
+	//   - With borrow == 1: borrow-out happened iff x <= y.
+	diff = x - y - borrow
+	if borrow > 0 {
+		if x <= y {
+			borrowOut = 1
+		}
+	} else {
+		if x < y {
+			borrowOut = 1
+		}
 	}
-
-	highDiff := xHi - yHi - lowBorrow
-	diffHi := uint32(highDiff)
-	var highBorrow uint32
-	if highDiff < 0 {
-		highBorrow = 1
-	}
-
-	diff = uint64(diffHi)<<32 | uint64(diffLo)
-	borrowOut = uint64(highBorrow)
 	return
 }
 
@@ -511,42 +493,6 @@ type nativeBitsTest struct {
 
 func nativeBitsTests() []nativeBitsTest {
 	return []nativeBitsTest{
-		{
-			name: `LeadingZero32`,
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`LeadingZero32(%04x) => %d`, arg.inX32, arg.outI)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outI = bits.LeadingZeros32(arg.inX32)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outI = nativeLeadingZeros32(arg.inX32)
-			},
-		},
-		{
-			name: `TrailingZeros32`,
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`TrailingZeros32(%04x) => %d`, arg.inX32, arg.outI)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outI = bits.TrailingZeros32(arg.inX32)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outI = nativeTrailingZeros32(arg.inX32)
-			},
-		},
-		{
-			name: `Len32`,
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`Len32(%04x) => %d`, arg.inX32, arg.outI)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outI = bits.Len32(arg.inX32)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outI = nativeLen32(arg.inX32)
-			},
-		},
 		{
 			name: `OnesCount32`,
 			format: func(arg *nativeBitsTestArg) string {
@@ -673,7 +619,7 @@ func nativeBitsTests() []nativeBitsTest {
 const (
 	nativeBitsBenchSize  = 1024
 	nativeBitsBenchSeed  = 0xC0FFEE
-	nativeBitsTrialCount = 1
+	nativeBitsTrialCount = 10
 )
 
 func Test_NativeBits(t *testing.T) {
