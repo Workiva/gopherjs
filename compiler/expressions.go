@@ -668,7 +668,7 @@ func (fc *funcContext) translateExpr(expr ast.Expr) *expression {
 					case "InternalObject":
 						return fc.translateExpr(e.Args[0])
 					case "MakeUint64":
-						return fc.formatExpr("$Uint64(%e, %e)", e.Args[0], e.Args[1])
+						return fc.formatExpr("new $Uint64(%e, %e)", e.Args[0], e.Args[1])
 					case "Uint64High":
 						return fc.formatExpr("%e.$high", e.Args[0])
 					case "Uint64Low":

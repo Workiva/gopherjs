@@ -21,20 +21,51 @@ var (
 
 //gopherjs:replace
 func LeadingZeros32(x uint32) int {
+	// See https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/clz32
 	return js.Global.Get("Math").Call("clz32", x).Int()
 }
 
 //gopherjs:replace
+func LeadingZeros64(x uint64) int {
+	if hi := js.Uint64High(x); hi != 0 {
+		return LeadingZeros32(hi)
+	}
+	return 32 + LeadingZeros32(js.Uint64Low(x))
+}
+
+//gopherjs:replace
 func TrailingZeros32(x uint32) int {
+	// See "ctrz" in https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/clz32
 	if x == 0 {
 		return 32
 	}
-	return 31 - js.Global.Get("Math").Call("clz32", x&-x).Int()
+	return 31 - LeadingZeros32(x&-x)
+}
+
+//gopherjs:replace
+func TrailingZeros64(x uint64) int {
+	lo := js.Uint64Low(x)
+	if lo != 0 {
+		return 31 - LeadingZeros32(lo&-lo)
+	}
+	hi := js.Uint64High(x)
+	if hi == 0 {
+		return 64
+	}
+	return 63 - LeadingZeros32(hi&-hi)
 }
 
 //gopherjs:replace
 func Len32(x uint32) int {
-	return 32 - js.Global.Get("Math").Call("clz32", x).Int()
+	return 32 - LeadingZeros32(x)
+}
+
+//gopherjs:replace
+func OnesCount32(x uint32) int {
+	x = x - ((x >> 1) & 0x55555555)
+	x = (x & 0x33333333) + ((x >> 2) & 0x33333333)
+	x = (x + (x >> 4)) & 0x0F0F0F0F
+	return int((x * 0x01010101) >> 24)
 }
 
 //gopherjs:replace
@@ -122,4 +153,53 @@ func Rem32(hi, lo, y uint32) uint32 {
 	//   hi<<64 + lo ≡ (hi%y)<<64 + lo    (mod y)
 	_, rem := Div32(hi%y, lo, y)
 	return rem
+}
+
+//gopherjs:replace
+func Len64(x uint64) int {
+	return 64 - LeadingZeros64(x)
+}
+
+//gopherjs:replace
+func OnesCount64(x uint64) int {
+	return OnesCount32(js.Uint64High(x)) + OnesCount32(js.Uint64Low(x))
+}
+
+//gopherjs:replace
+func Add64(x, y, carry uint64) (sum, carryOut uint64) {
+	// Decompose into 32-bit halves and perform the addition as float64,
+	// where JS can represent integers up to 2^53 exactly. js.MakeUint64
+	// handles low->high carry propagation automatically.
+	hiSum := float64(js.Uint64High(x)) + float64(js.Uint64High(y))
+	loSum := float64(js.Uint64Low(x)) + float64(js.Uint64Low(y)) + float64(js.Uint64Low(carry))
+	sum = js.MakeUint64(hiSum, loSum)
+
+	// Carry-out = 1 iff (hiSum + low->high carry) >= 2^32.
+	if loSum >= 4294967296.0 {
+		hiSum++
+	}
+	if hiSum >= 4294967296.0 {
+		carryOut = 1
+	}
+	return
+}
+
+//gopherjs:replace
+func Sub64(x, y, borrow uint64) (diff, borrowOut uint64) {
+	// Mirror of nativeAdd64. The $Uint64 constructor correctly handles a
+	// negative `low` value: Math.floor(negative/2^32) returns -1, which
+	// propagates the borrow into the high half automatically.
+	hiDiff := float64(js.Uint64High(x)) - float64(js.Uint64High(y))
+	loDiff := float64(js.Uint64Low(x)) - float64(js.Uint64Low(y)) - float64(js.Uint64Low(borrow))
+	diff = js.MakeUint64(hiDiff, loDiff)
+
+	// Borrow-out = 1 iff the conceptual signed result (hiDiff*2^32 + loDiff)
+	// is negative:
+	//   hiDiff > 0: result definitely >= 0 (loDiff > -2^32).
+	//   hiDiff = 0: result negative iff loDiff < 0.
+	//   hiDiff < 0: result definitely < 0.
+	if hiDiff < 0 || (hiDiff == 0 && loDiff < 0) {
+		borrowOut = 1
+	}
+	return
 }

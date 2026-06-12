@@ -313,369 +313,118 @@ func Test_MinMax(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Experimental native bit-twiddling helpers.
-//
-// The following nativeX functions are alternative implementations of selected
-// math/bits functions, written to leverage JavaScript-specific properties:
-//   - JS numbers can hold values larger than 2^32 exactly (up to 2^53), so an
-//     addition of two uint32 values does not overflow; the carry can be read
-//     off the high bits of the sum without a separate bit formula.
-//   - GopherJS represents uint64 as a JS object with $high and $low fields,
-//     each a uint32. Decomposing uint64 ops into two 32-bit halves can avoid
-//     the cost of full uint64 arithmetic.
-//   - V8 / SpiderMonkey expose Math.clz32 as a fast count-leading-zeros
-//     primitive, often a single machine instruction.
-//
-// These are kept in test code so we can benchmark them against the standard
-// math/bits implementations before promoting any to native overrides in
-// compiler/natives. They are JS-only.
-// =============================================================================
-
-func nativeOnesCount32(x uint32) int {
-	x = x - ((x >> 1) & 0x55555555)
-	x = (x & 0x33333333) + ((x >> 2) & 0x33333333)
-	x = (x + (x >> 4)) & 0x0F0F0F0F
-	return int((x * 0x01010101) >> 24)
-}
-
-func nativeAdd32(x, y, carry uint32) (sum, carryOut uint32) {
-	total := float64(x) + float64(y) + float64(carry)
-	sum = uint32(total)
-	if total >= 4294967296.0 {
-		carryOut = 1
-	}
-	return
-}
-
-func nativeSub32(x, y, borrow uint32) (diff, borrowOut uint32) {
-	total := float64(x) - float64(y) - float64(borrow)
-	diff = uint32(total)
-	if total < 0 {
-		borrowOut = 1
-	}
-	return
-}
-
-func nativeMul32(x, y uint32) (hi, lo uint32) {
-	xf := float64(x)
-	yLo := float64(y & 0xFFFF)
-	yHi := float64(y >> 16)
-
-	// Both products are exact since each factor is < 2^16 on the y side and
-	// < 2^32 on the x side, so the product is < 2^48 (fits in float64 mantissa).
-	lo48 := xf * yLo
-	hi48 := xf * yHi
-
-	// Decompose hi48 into the bottom 16 bits (which contribute to bits 16-31
-	// of the full product) and the remaining 32 bits (bits 32-63).
-	hi48Div16 := math.Floor(hi48 / 65536.0)
-	hi48Mod16 := hi48 - hi48Div16*65536.0
-
-	// mid is lo48 plus the contribution of the bottom 16 bits of hi48
-	// shifted left by 16. Still ≤ 2^48 + 2^32, so exact in float64.
-	mid := lo48 + hi48Mod16*65536.0
-	lo = uint32(mid)
-	hi = uint32(math.Floor(mid/4294967296.0) + hi48Div16)
-	return
-}
-
-func nativeLeadingZeros64(x uint64) int {
-	hi := js.Uint64High(x)
-	if hi != 0 {
-		return js.Global.Get("Math").Call("clz32", hi).Int()
-	}
-	lo := js.Uint64Low(x)
-	return 32 + js.Global.Get("Math").Call("clz32", lo).Int()
-}
-
-func nativeTrailingZeros64(x uint64) int {
-	lo := js.Uint64Low(x)
-	if lo != 0 {
-		return 31 - js.Global.Get("Math").Call("clz32", lo&-lo).Int()
-	}
-	hi := js.Uint64High(x)
-	if hi == 0 {
-		return 64
-	}
-	return 32 + 31 - js.Global.Get("Math").Call("clz32", hi&-hi).Int()
-}
-
-func nativeLen64(x uint64) int {
-	return 64 - nativeLeadingZeros64(x)
-}
-
-func nativeOnesCount64(x uint64) int {
-	hi := js.Uint64High(x)
-	lo := js.Uint64Low(x)
-	return nativeOnesCount32(hi) + nativeOnesCount32(lo)
-}
-
-func nativeAdd64(x, y, carry uint64) (sum, carryOut uint64) {
-	// Use native uint64 arithmetic for the sum (each `+` is a single
-	// $Uint64 allocation in GopherJS). Then detect the carry-out by a
-	// uint64 comparison, which GopherJS inlines as a $high/$low compare
-	// with no extra allocation. This avoids the bit-formula
-	// `((x & y) | ((x | y) &^ sum)) >> 63` used by the standard library,
-	// which costs ~5 extra $Uint64 allocations.
-	//
-	//   - With carry == 0: carry-out happened iff sum < x.
-	//   - With carry == 1: carry-out happened iff sum <= x (sum can equal x
-	//     when y == 2^64-1 and the +1 from carry triggers the overflow).
-	sum = x + y + carry
-	if carry > 0 {
-		if sum <= x {
-			carryOut = 1
-		}
-	} else {
-		if sum < x {
-			carryOut = 1
-		}
-	}
-	return
-}
-
-func nativeSub64(x, y, borrow uint64) (diff, borrowOut uint64) {
-	// Same idea as nativeAdd64: native uint64 ops for the diff, comparison
-	// for the borrow.
-	//
-	//   - With borrow == 0: borrow-out happened iff x < y.
-	//   - With borrow == 1: borrow-out happened iff x <= y.
-	diff = x - y - borrow
-	if borrow > 0 {
-		if x <= y {
-			borrowOut = 1
-		}
-	} else {
-		if x < y {
-			borrowOut = 1
-		}
-	}
-	return
-}
-
-// =============================================================================
-// Test inputs and TestNativeBits to verify each nativeX matches bits.X.
-// =============================================================================
-
-type nativeBitsTestArg struct {
-	inX32, inY32, inC32 uint32
-	inX64, inY64, inC64 uint64
-	outI                int
-	outX32, outY32      uint32
-	outX64, outY64      uint64
-}
-
-func generateNativeBitsInputs(count int, seed int64) []*nativeBitsTestArg {
-	r := rand.New(rand.NewSource(seed))
-	in := make([]*nativeBitsTestArg, count)
-	for i := 0; i < count; i++ {
-		in[i] = &nativeBitsTestArg{
-			inX32: r.Uint32(),
-			inY32: r.Uint32(),
-			inC32: r.Uint32() & 1, // carry or borrow must be 0 or 1
-			inX64: r.Uint64(),
-			inY64: r.Uint64(),
-			inC64: r.Uint64() & 1,
-		}
-	}
-	return in
-}
-
-type nativeBitsTestHandle func(*nativeBitsTestArg)
-
-type nativeBitsTest struct {
-	name     string
-	format   func(*nativeBitsTestArg) string
-	original nativeBitsTestHandle
-	native   nativeBitsTestHandle
-}
-
-func nativeBitsTests() []nativeBitsTest {
-	return []nativeBitsTest{
-		{
-			name: `OnesCount32`,
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`OnesCount32(%04x) => %d`, arg.inX32, arg.outI)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outI = bits.OnesCount32(arg.inX32)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outI = nativeOnesCount32(arg.inX32)
-			},
-		},
-		{
-			name: `Add32`,
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`Add32(%04x, %04x, %x) => (%04x, %x)`, arg.inX32, arg.inY32, arg.inC32, arg.outX32, arg.outY32)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outX32, arg.outY32 = bits.Add32(arg.inX32, arg.inY32, arg.inC32)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outX32, arg.outY32 = nativeAdd32(arg.inX32, arg.inY32, arg.inC32)
-			},
-		},
-		{
-			name: `Sub32`,
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`Sub32(%04x, %04x, %x) => (%04x, %x)`, arg.inX32, arg.inY32, arg.inC32, arg.outX32, arg.outY32)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outX32, arg.outY32 = bits.Sub32(arg.inX32, arg.inY32, arg.inC32)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outX32, arg.outY32 = nativeSub32(arg.inX32, arg.inY32, arg.inC32)
-			},
-		},
-		{
-			name: "Mul32",
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`Mul32(%04x, %04x) => (%04x, %x)`, arg.inX32, arg.inY32, arg.outX32, arg.outY32)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outX32, arg.outY32 = bits.Mul32(arg.inX32, arg.inY32)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outX32, arg.outY32 = nativeMul32(arg.inX32, arg.inY32)
-			},
-		},
-		{
-			name: "LeadingZeros64",
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`LeadingZeros64(%08x) => %d`, arg.inX64, arg.outI)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outI = bits.LeadingZeros64(arg.inX64)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outI = nativeLeadingZeros64(arg.inX64)
-			},
-		},
-		{
-			name: "TrailingZeros64",
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`TrailingZeros64(%08x) => %d`, arg.inX64, arg.outI)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outI = bits.TrailingZeros64(arg.inX64)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outI = nativeTrailingZeros64(arg.inX64)
-			},
-		},
-		{
-			name: "Len64",
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`Len64(%08x) => %d`, arg.inX64, arg.outI)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outI = bits.Len64(arg.inX64)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outI = nativeLen64(arg.inX64)
-			},
-		},
-		{
-			name: "OnesCount64",
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`OnesCount64(%08x) => %d`, arg.inX64, arg.outI)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outI = bits.OnesCount64(arg.inX64)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outI = nativeOnesCount64(arg.inX64)
-			},
-		},
-		{
-			name: "Add64",
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`Add64(%08x, %08x, %x) => (%08x, %x)`, arg.inX64, arg.inY64, arg.inC64, arg.outX64, arg.outY64)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outX64, arg.outY64 = bits.Add64(arg.inX64, arg.inY64, arg.inC64)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outX64, arg.outY64 = nativeAdd64(arg.inX64, arg.inY64, arg.inC64)
-			},
-		},
-		{
-			name: "Sub64",
-			format: func(arg *nativeBitsTestArg) string {
-				return fmt.Sprintf(`Sub64(%08x, %08x, %x) => (%08x, %x)`, arg.inX64, arg.inY64, arg.inC64, arg.outX64, arg.outY64)
-			},
-			original: func(arg *nativeBitsTestArg) {
-				arg.outX64, arg.outY64 = bits.Sub64(arg.inX64, arg.inY64, arg.inC64)
-			},
-			native: func(arg *nativeBitsTestArg) {
-				arg.outX64, arg.outY64 = nativeSub64(arg.inX64, arg.inY64, arg.inC64)
-			},
-		},
-	}
-}
-
-const (
-	nativeBitsBenchSize  = 1024
-	nativeBitsBenchSeed  = 0xC0FFEE
-	nativeBitsTrialCount = 10
-)
-
-func Test_NativeBits(t *testing.T) {
-	if runtime.GOOS != "js" {
-		t.Skip("native bit functions use JS-specific features")
-	}
-
-	ins := generateNativeBitsInputs(nativeBitsBenchSize, nativeBitsBenchSeed)
-	tests := nativeBitsTests()
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			for i, in := range ins {
-				want := *in
-				test.original(&want)
-				got := *in
-				test.native(&got)
-				if want != got {
-					t.Errorf("unexpected results from %s at %d:\n\twant: %s\n\tgot:  %s\n",
-						test.name, i, test.format(&want), test.format(&got))
-				}
-			}
-		})
-	}
-}
-
-func Benchmark_NativeBits(b *testing.B) {
+func Benchmark_Native_MathBits(b *testing.B) {
 	if runtime.GOOS != "js" {
 		b.Skip("native bit functions use JS-specific features")
 	}
 
-	tests := nativeBitsTests()
-	type chunk struct {
-		name   string
-		handle nativeBitsTestHandle
+	const (
+		inputSize = 1024
+		randSeed  = 0xC0FFEE
+		// set trial count and randomize to take multiple samples and randomize
+		// the order of the tests to help reduce burn-in error and noise.
+		trialCount = 1
+		randomize  = false
+	)
+
+	type mathBitsBenchArg struct {
+		x8                 uint8
+		x16                uint16
+		x32, y32, c32, d32 uint32
+		x64, y64, c64, d64 uint64
+		k                  int
 	}
-	chunks := make([]chunk, 0, 2*nativeBitsTrialCount*len(tests))
-	for trial := 0; trial < nativeBitsTrialCount; trial++ {
-		for _, test := range tests {
-			chunks = append(chunks, chunk{
-				name:   fmt.Sprintf(`original.%s.%d`, test.name, trial),
-				handle: test.original,
-			}, chunk{
-				name:   fmt.Sprintf(`native.%s.%d`, test.name, trial),
-				handle: test.native,
-			})
+
+	r := rand.New(rand.NewSource(randSeed))
+	ins := make([]*mathBitsBenchArg, inputSize)
+	for i := 0; i < inputSize; i++ {
+		x32 := r.Uint32()
+		y32 := r.Uint32()
+		c32 := r.Uint32() & 1             // carry or borrow must be 0 or 1
+		d32 := (r.Uint32()-1)%(y32-1) + 1 // denominator in Div (if == 0 or >= y, panic)
+		x64 := r.Uint64()
+		y64 := r.Uint64()
+		c64 := r.Uint64() & 1
+		d64 := (r.Uint64()-1)%(y64-1) + 1
+		k := int(r.Uint32())
+
+		ins[i] = &mathBitsBenchArg{
+			x8: uint8(x32), x16: uint16(x32),
+			x32: x32, y32: y32, c32: c32, d32: d32,
+			x64: x64, y64: y64, c64: c64, d64: d64, k: k,
 		}
 	}
-	rand.Shuffle(len(chunks), func(i, j int) {
-		chunks[i], chunks[j] = chunks[j], chunks[i]
-	})
 
-	ins := generateNativeBitsInputs(nativeBitsBenchSize, nativeBitsBenchSeed)
-	for _, c := range chunks {
-		b.Run(c.name, func(b *testing.B) {
+	type testFn struct {
+		name string
+		fn   func(*mathBitsBenchArg)
+	}
+
+	tests := []testFn{
+		// --- LeadingZeros ---
+		{name: `LeadingZeros8`, fn: func(arg *mathBitsBenchArg) { _ = bits.LeadingZeros8(arg.x8) }},
+		{name: `LeadingZeros16`, fn: func(arg *mathBitsBenchArg) { _ = bits.LeadingZeros16(arg.x16) }},
+		{name: `LeadingZeros32`, fn: func(arg *mathBitsBenchArg) { _ = bits.LeadingZeros32(arg.x32) }},
+		{name: "LeadingZeros64", fn: func(arg *mathBitsBenchArg) { _ = bits.LeadingZeros64(arg.x64) }},
+		// --- TrailingZeros ---
+		{name: `TrailingZeros8`, fn: func(arg *mathBitsBenchArg) { _ = bits.TrailingZeros8(arg.x8) }},
+		{name: `TrailingZeros16`, fn: func(arg *mathBitsBenchArg) { _ = bits.TrailingZeros16(arg.x16) }},
+		{name: `TrailingZeros32`, fn: func(arg *mathBitsBenchArg) { _ = bits.TrailingZeros32(arg.x32) }},
+		{name: "TrailingZeros64", fn: func(arg *mathBitsBenchArg) { _ = bits.TrailingZeros64(arg.x64) }},
+		// --- OnesCount ---
+		{name: `OnesCount8`, fn: func(arg *mathBitsBenchArg) { _ = bits.OnesCount8(arg.x8) }},
+		{name: `OnesCount16`, fn: func(arg *mathBitsBenchArg) { _ = bits.OnesCount16(arg.x16) }},
+		{name: `OnesCount32`, fn: func(arg *mathBitsBenchArg) { _ = bits.OnesCount32(arg.x32) }},
+		{name: "OnesCount64", fn: func(arg *mathBitsBenchArg) { _ = bits.OnesCount64(arg.x64) }},
+		// --- RotateLeft ---
+		{name: "RotateLeft8", fn: func(arg *mathBitsBenchArg) { _ = bits.RotateLeft8(arg.x8, arg.k) }},
+		{name: "RotateLeft16", fn: func(arg *mathBitsBenchArg) { _ = bits.RotateLeft16(arg.x16, arg.k) }},
+		{name: "RotateLeft32", fn: func(arg *mathBitsBenchArg) { _ = bits.RotateLeft32(arg.x32, arg.k) }},
+		{name: "RotateLeft64", fn: func(arg *mathBitsBenchArg) { _ = bits.RotateLeft64(arg.x64, arg.k) }},
+		// --- Reverse ---
+		{name: "Reverse8", fn: func(arg *mathBitsBenchArg) { _ = bits.Reverse8(arg.x8) }},
+		{name: "Reverse16", fn: func(arg *mathBitsBenchArg) { _ = bits.Reverse16(arg.x16) }},
+		{name: "Reverse32", fn: func(arg *mathBitsBenchArg) { _ = bits.Reverse32(arg.x32) }},
+		{name: "Reverse64", fn: func(arg *mathBitsBenchArg) { _ = bits.Reverse64(arg.x64) }},
+		// --- ReverseBytes ---
+		{name: "ReverseBytes16", fn: func(arg *mathBitsBenchArg) { _ = bits.ReverseBytes16(arg.x16) }},
+		{name: "ReverseBytes32", fn: func(arg *mathBitsBenchArg) { _ = bits.ReverseBytes32(arg.x32) }},
+		{name: "ReverseBytes64", fn: func(arg *mathBitsBenchArg) { _ = bits.ReverseBytes64(arg.x64) }},
+		// --- Len ---
+		{name: `Len8`, fn: func(arg *mathBitsBenchArg) { _ = bits.Len8(arg.x8) }},
+		{name: `Len16`, fn: func(arg *mathBitsBenchArg) { _ = bits.Len16(arg.x16) }},
+		{name: `Len32`, fn: func(arg *mathBitsBenchArg) { _ = bits.Len32(arg.x32) }},
+		{name: "Len64", fn: func(arg *mathBitsBenchArg) { _ = bits.Len64(arg.x64) }},
+		// --- Add with carry ---
+		{name: "Add32", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Add32(arg.x32, arg.y32, arg.c32) }},
+		{name: "Add64", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Add64(arg.x64, arg.y64, arg.c64) }},
+		// --- Subtract with borrow ---
+		{name: "Sub32", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Sub32(arg.x32, arg.y32, arg.c32) }},
+		{name: "Sub64", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Sub64(arg.x64, arg.y64, arg.c64) }},
+		// --- Full-width multiply ---
+		{name: "Mul32", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Mul32(arg.x32, arg.y32) }},
+		{name: "Mul64", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Mul64(arg.x64, arg.y64) }},
+		// --- Full-width divide ---
+		{name: "Div32", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Div32(arg.x32, arg.y32, arg.d32) }},
+		{name: "Div64", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Div64(arg.x64, arg.y64, arg.d64) }},
+		{name: "Rem32", fn: func(arg *mathBitsBenchArg) { _ = bits.Rem32(arg.x32, arg.y32, arg.d32) }},
+		{name: "Rem64", fn: func(arg *mathBitsBenchArg) { _ = bits.Rem64(arg.x64, arg.y64, arg.d64) }},
+	}
+
+	trials := make([]testFn, 0, trialCount*len(tests))
+	for i := 0; i < trialCount; i++ {
+		trials = append(trials, tests...)
+	}
+	if randomize {
+		r.Shuffle(len(trials), func(i, j int) {
+			trials[i], trials[j] = trials[j], trials[i]
+		})
+	}
+
+	for _, tt := range trials {
+		b.Run(tt.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				c.handle(ins[i%nativeBitsBenchSize])
+				tt.fn(ins[i%inputSize])
 			}
 		})
 	}
