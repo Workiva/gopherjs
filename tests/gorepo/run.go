@@ -177,7 +177,6 @@ type failReason struct {
 
 var (
 	verbose        = flag.Bool("v", false, "verbose. if set, parallelism is set to 1.")
-	keep           = flag.Bool("k", false, "keep. keep temporary directory.")
 	numParallel    = flag.Int("n", runtime.NumCPU(), "number of parallel tests to run")
 	summary        = flag.Bool("summary", false, "show summary of results")
 	showSkips      = flag.Bool("show_skips", false, "show skipped tests")
@@ -688,9 +687,7 @@ func (t *test) run() {
 	}
 
 	t.makeTempDir()
-	if !*keep {
-		defer os.RemoveAll(t.tempDir)
-	}
+	defer os.RemoveAll(t.tempDir)
 
 	err = os.WriteFile(filepath.Join(t.tempDir, t.gofile), srcBytes, 0o644)
 	check(err)
