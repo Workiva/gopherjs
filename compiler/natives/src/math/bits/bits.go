@@ -238,3 +238,50 @@ func Sub64(x, y, borrow uint64) (diff, borrowOut uint64) {
 	}
 	return
 }
+
+//gopherjs:replace
+func Mul64(x, y uint64) (uint64, uint64) {
+	const (
+		bit32  = 1 << 32
+		bit16  = 1 << 16
+		mask16 = bit16 - 1
+	)
+	// Get the 16-bits parts so that multiplication keeps under 32-bits.
+	xLo := js.Uint64Low(x)
+	x0 := xLo & mask16
+	x1 := xLo >> 16
+	xHi := js.Uint64High(x)
+	x2 := xHi & mask16
+	x3 := xHi >> 16
+	yLo := js.Uint64Low(y)
+	y0 := yLo & mask16
+	y1 := yLo >> 16
+	yHi := js.Uint64High(y)
+	y2 := yHi & mask16
+	y3 := yHi >> 16
+	// Columns of the 128-bit product, identified by their bit offset.
+	// Each c<k> holds the still-unreduced sum for bits k..k+16 and is at
+	// most 2^32 - 2^16 (fits in uint32) before we shift the carry on.
+	c0 := x0 * y0
+	c16 := c0 >> 16
+	c0 &= mask16
+	c16 += x1 * y0
+	c32 := c16 >> 16
+	c16 &= mask16
+	c16 += x0 * y1
+	c32 += c16 >> 16
+	c16 &= mask16
+	// Pack the low 32 bits of the product.
+	loLo := c16<<16 | c0
+	// The remaining 96 bits are computed in float64. Max value of any
+	// `cN` partial sum is 4*(2^32-1) + small carries ≈ 2^34, exact in
+	// float64. js.MakeUint64 handles low->high carry on each output.
+	mid := float64(c32) + float64(x2*y0) + float64(x1*y1) + float64(x0*y2)
+	// Carry out of `mid` into bit 64
+	midCarry := uint32(mid / bit32)
+	hiLo := float64(midCarry) + float64(x3*y0) + float64(x2*y1) + float64(x1*y2) + float64(x0*y3)
+	hiHi := float64(x3*y1+x2*y2+x1*y3) + // bits 64..96-ish, all 16x16
+		bit16*float64(x3*y2+x2*y3) + // bits 80..96 contribute >>16 of these into bits 96+
+		bit32*float64(x3*y3) // bits 96..128
+	return js.MakeUint64(hiHi, hiLo), js.MakeUint64(mid, float64(loLo))
+}
