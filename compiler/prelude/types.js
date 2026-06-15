@@ -102,6 +102,9 @@ var $newType = (size, kind, string, named, pkg, exported, constructor) => {
 
         case $kindInt64:
             typ = function (high, low) {
+                //this.$high = (low >= 0 && low <= 4294967295)
+                //    ? this.$high = high >> 0
+                //    : (high + Math.floor(Math.ceil(low) / 4294967296)) >> 0;
                 this.$high = (high + Math.floor(Math.ceil(low) / 4294967296)) >> 0;
                 this.$low = low >>> 0;
                 this.$val = this;
@@ -111,6 +114,9 @@ var $newType = (size, kind, string, named, pkg, exported, constructor) => {
 
         case $kindUint64:
             typ = function (high, low) {
+                //this.$high = (low >= 0 && low <= 4294967295)
+                //    ? high >>> 0
+                //    : (high + Math.floor(Math.ceil(low) / 4294967296)) >>> 0;
                 this.$high = (high + Math.floor(Math.ceil(low) / 4294967296)) >>> 0;
                 this.$low = low >>> 0;
                 this.$val = this;

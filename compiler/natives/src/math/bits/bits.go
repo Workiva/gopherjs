@@ -166,6 +166,39 @@ func OnesCount64(x uint64) int {
 }
 
 //gopherjs:replace
+func RotateLeft64(x uint64, k int) uint64 {
+	s := uint32(k) & 64
+	xHi := js.Uint64High(x)
+	xLo := js.Uint64Low(x)
+	if s >= 32 {
+		tmp := xLo
+		xLo = xHi
+		xHi = tmp
+		s -= 32
+	}
+	if s == 0 {
+		return js.MakeUint64(float64(xHi), float64(xLo))
+	}
+	fHi := xHi<<s | xLo>>(32-s)
+	fLo := xLo<<s | xHi>>(32-s)
+	return js.MakeUint64(float64(fHi), float64(fLo))
+}
+
+//gopherjs:replace
+func Reverse64(x uint64) uint64 {
+	return js.MakeUint64(
+		float64(Reverse32(js.Uint64Low(x))),
+		float64(Reverse32(js.Uint64High(x))))
+}
+
+//gopherjs:replace
+func ReverseBytes64(x uint64) uint64 {
+	return js.MakeUint64(
+		float64(ReverseBytes32(js.Uint64Low(x))),
+		float64(ReverseBytes32(js.Uint64High(x))))
+}
+
+//gopherjs:replace
 func Add64(x, y, carry uint64) (sum, carryOut uint64) {
 	// Decompose into 32-bit halves and perform the addition as float64,
 	// where JS can represent integers up to 2^53 exactly. js.MakeUint64
