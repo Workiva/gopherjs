@@ -167,7 +167,10 @@ func OnesCount64(x uint64) int {
 
 //gopherjs:replace
 func RotateLeft64(x uint64, k int) uint64 {
-	s := uint32(k) & 64
+	s := uint32(k) & 63
+	if s == 0 {
+		return x
+	}
 	xHi := js.Uint64High(x)
 	xLo := js.Uint64Low(x)
 	if s >= 32 {
@@ -179,9 +182,8 @@ func RotateLeft64(x uint64, k int) uint64 {
 	if s == 0 {
 		return js.MakeUint64(float64(xHi), float64(xLo))
 	}
-	fHi := xHi<<s | xLo>>(32-s)
-	fLo := xLo<<s | xHi>>(32-s)
-	return js.MakeUint64(float64(fHi), float64(fLo))
+	rs := 32 - s
+	return js.MakeUint64(float64(xHi<<s|xLo>>rs), float64(xLo<<s|xHi>>rs))
 }
 
 //gopherjs:replace
