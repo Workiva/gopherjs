@@ -320,9 +320,153 @@ func Div32(hi, lo, y uint32) (quo, rem uint32) {
 	return q1*two16 + q0, (un21*two16 + un0 - q0*y) >> s
 }
 
-//gopherjs:remove
+//gopherjs:replace
 func Div64(hi, lo, y uint64) (quo, rem uint64) {
-	// TODO: Agent insert code here
+	// Reference: "The Art of Computer Programming" (TAoCP) Vol. 2 by Knuth
+	// (a copy can be found at https://github.com/Code42Cate/The-Art-of-Computer-Programming/blob/master/Volume2.pdf)
+	// describes Algorithm D (Division of nonnegative integers) in 4.3.1 starting on page 257.
+	//
+	// This code is similar to the original math/bits.Div64	with all arithmetic
+	// operating on 32-bit halves to avoid using uint64 operations that we have
+	// to emulate in JS.
+	yHi := js.Uint64High(y)
+	yLo := js.Uint64Low(y)
+	if yHi == 0 && yLo == 0 {
+		panic(divideError)
+	}
+	hiHi := js.Uint64High(hi)
+	hiLo := js.Uint64Low(hi)
+	if yHi < hiHi || (yHi == hiHi && yLo <= hiLo) {
+		panic(overflowError)
+	}
+	loHi := js.Uint64High(lo)
+	loLo := js.Uint64Low(lo)
+
+	// Fast path: divisor fits in 32 bits. The y > hi precondition forces
+	// hiHi == 0 and hiLo < yLo, so neither Div32 below can overflow.
+	if yHi == 0 {
+		q1, r1 := Div32(hiLo, loHi, yLo)
+		q0, r0 := Div32(r1, loLo, yLo)
+		return js.MakeUint64(float64(q1), float64(q0)),
+			js.MakeUint64(0, float64(r0))
+	}
+
+	// General case: yHi != 0 (full 64-bit divisor).
+	// Normalize so the divisor's top bit is set; s is in [0, 31].
+	s := uint(LeadingZeros32(yHi))
+	rs := 32 - s
+
+	// Shifted divisor Y = y << s = (Yn1:Yn0).
+	// Shifted dividend U = (hi:lo) << s = (un32Hi:un32Lo:un1:un0).
+	// Because hi < y (precondition), hi << s still fits in 64 bits.
+	var Yn1, Yn0, un32Hi, un32Lo, un1, un0 uint32
+	if s == 0 {
+		Yn1, Yn0 = yHi, yLo
+		un32Hi, un32Lo = hiHi, hiLo
+		un1, un0 = loHi, loLo
+	} else {
+		Yn1 = yHi<<s | yLo>>rs
+		Yn0 = yLo << s
+		un32Hi = hiHi<<s | hiLo>>rs
+		un32Lo = hiLo<<s | loHi>>rs
+		un1 = loHi<<s | loLo>>rs
+		un0 = loLo << s
+	}
+
+	// --- First quotient digit q1 ≈ (un32Hi:un32Lo) / Yn1 ---
+	// Precondition un32 < Y gives un32Hi <= Yn1. When un32Hi == Yn1 the
+	// true digit is 2^32 or 2^32+1; Knuth's loop implicitly decrements it
+	// to 2^32-1 with rhat = un32Lo + Yn1. If that sum overflows uint32 the
+	// loop's "rhat >= two32" early-exit fires and no further adjustment is
+	// possible from 32-bit rhat, so we mark skipAdj.
+	var q1, rhat uint32
+	var skipAdj bool
+	if un32Hi >= Yn1 {
+		q1 = 0xFFFFFFFF
+		sum, carry := Add32(un32Lo, Yn1, 0)
+		if carry != 0 {
+			skipAdj = true
+		} else {
+			rhat = sum
+		}
+	} else {
+		q1, rhat = Div32(un32Hi, un32Lo, Yn1)
+	}
+
+	// Track q1 * Yn0 incrementally across the correction loop so we avoid
+	// re-multiplying every iteration and can reuse the final value for un21.
+	qynHi, qynLo := Mul32(q1, Yn0)
+	if !skipAdj {
+		for qynHi > rhat || (qynHi == rhat && qynLo > un1) {
+			q1--
+			if qynLo < Yn0 {
+				qynHi--
+			}
+			qynLo -= Yn0
+			sum, carry := Add32(rhat, Yn1, 0)
+			if carry != 0 {
+				break
+			}
+			rhat = sum
+		}
+	}
+
+	// un21 = (un32:un1) - q1*y, mod 2^64.
+	// (un32 << 32) mod 2^64 = (un32Lo : 0), so the top half of un21 is
+	// computed from un32Lo (not un32Hi). q1*y mod 2^64 has high 32 bits
+	// q1*Yn1 + carry(q1*Yn0); both intentionally wrap modulo 2^32.
+	qyHi := q1*Yn1 + qynHi
+	un21Lo := un1 - qynLo
+	un21Hi := un32Lo - qyHi
+	if un1 < qynLo {
+		un21Hi--
+	}
+
+	// --- Second quotient digit q0 ≈ (un21Hi:un21Lo) / Yn1 ---
+	var q0 uint32
+	skipAdj = false
+	if un21Hi >= Yn1 {
+		q0 = 0xFFFFFFFF
+		sum, carry := Add32(un21Lo, Yn1, 0)
+		if carry != 0 || un21Hi > Yn1 {
+			skipAdj = true
+		} else {
+			rhat = sum
+		}
+	} else {
+		q0, rhat = Div32(un21Hi, un21Lo, Yn1)
+	}
+
+	qynHi, qynLo = Mul32(q0, Yn0)
+	if !skipAdj {
+		for qynHi > rhat || (qynHi == rhat && qynLo > un0) {
+			q0--
+			if qynLo < Yn0 {
+				qynHi--
+			}
+			qynLo -= Yn0
+			sum, carry := Add32(rhat, Yn1, 0)
+			if carry != 0 {
+				break
+			}
+			rhat = sum
+		}
+	}
+
+	// Remainder = (un21:un0) - q0*y, mod 2^64, then >> s to denormalize.
+	qyHi2 := q0*Yn1 + qynHi
+	remLo := un0 - qynLo
+	remHi := un21Lo - qyHi2
+	if un0 < qynLo {
+		remHi--
+	}
+	if s != 0 {
+		remLo = remLo>>s | remHi<<rs
+		remHi = remHi >> s
+	}
+
+	return js.MakeUint64(float64(q1), float64(q0)),
+		js.MakeUint64(float64(remHi), float64(remLo))
 }
 
 //gopherjs:replace
