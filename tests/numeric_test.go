@@ -402,7 +402,12 @@ func Benchmark_Native_MathBits(b *testing.B) {
 		// --- Full-width multiply ---
 		{name: "Mul32", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Mul32(arg.x32, arg.y32) }},
 		{name: "Mul64", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Mul64(arg.x64, arg.y64) }},
-		// Full-width divide not benchmarked yet
+		// --- Full-width divide ---
+
+		// TODO: Div32  // keep
+		// TODO: Rem32  // keep
+		// TODO: Div64  // keep
+		// TODO: Rem64  // keep
 	}
 
 	trials := make([]testFn, 0, trialCount*len(tests))

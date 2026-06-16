@@ -19,13 +19,13 @@ var (
 	divideError   error = _err("runtime error: integer divide by zero")
 )
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func LeadingZeros32(x uint32) int {
 	// See https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/clz32
 	return js.Global.Get("Math").Call("clz32", x).Int()
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func LeadingZeros64(x uint64) int {
 	if hi := js.Uint64High(x); hi != 0 {
 		return LeadingZeros32(hi)
@@ -33,7 +33,7 @@ func LeadingZeros64(x uint64) int {
 	return 32 + LeadingZeros32(js.Uint64Low(x))
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func TrailingZeros32(x uint32) int {
 	// See "ctrz" in https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/clz32
 	if x == 0 {
@@ -42,7 +42,7 @@ func TrailingZeros32(x uint32) int {
 	return 31 - LeadingZeros32(x&-x)
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func TrailingZeros64(x uint64) int {
 	lo := js.Uint64Low(x)
 	if lo != 0 {
@@ -55,12 +55,12 @@ func TrailingZeros64(x uint64) int {
 	return 63 - LeadingZeros32(hi&-hi)
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func Len32(x uint32) int {
 	return 32 - LeadingZeros32(x)
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func OnesCount32(x uint32) int {
 	x = x - ((x >> 1) & 0x55555555)
 	x = (x & 0x33333333) + ((x >> 2) & 0x33333333)
@@ -68,7 +68,7 @@ func OnesCount32(x uint32) int {
 	return int((x * 0x01010101) >> 24)
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func Mul32(x, y uint32) (hi, lo uint32) {
 	// Avoid slow 64-bit integers for better performance. Adapted from Mul64().
 	const mask16 = 1<<16 - 1
@@ -86,7 +86,7 @@ func Mul32(x, y uint32) (hi, lo uint32) {
 	return
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func Add32(x, y, carry uint32) (sum, carryOut uint32) {
 	// Avoid slow 64-bit integers for better performance. Adapted from Add64().
 	sum = x + y + carry
@@ -94,7 +94,7 @@ func Add32(x, y, carry uint32) (sum, carryOut uint32) {
 	return
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func Div32(hi, lo, y uint32) (quo, rem uint32) {
 	// Avoid slow 64-bit integers for better performance. Adapted from Div64().
 	const (
@@ -143,7 +143,7 @@ func Div32(hi, lo, y uint32) (quo, rem uint32) {
 	return q1*two16 + q0, (un21*two16 + un0 - q0*y) >> s
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func Rem32(hi, lo, y uint32) uint32 {
 	// We scale down hi so that hi < y, then use Div32 to compute the
 	// rem with the guarantee that it won't panic on quotient overflow.
@@ -155,17 +155,17 @@ func Rem32(hi, lo, y uint32) uint32 {
 	return rem
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func Len64(x uint64) int {
 	return 64 - LeadingZeros64(x)
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func OnesCount64(x uint64) int {
 	return OnesCount32(js.Uint64High(x)) + OnesCount32(js.Uint64Low(x))
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func RotateLeft64(x uint64, k int) uint64 {
 	s := uint32(k) & 63
 	if s == 0 {
@@ -186,21 +186,21 @@ func RotateLeft64(x uint64, k int) uint64 {
 	return js.MakeUint64(float64(xHi<<s|xLo>>rs), float64(xLo<<s|xHi>>rs))
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func Reverse64(x uint64) uint64 {
 	return js.MakeUint64(
 		float64(Reverse32(js.Uint64Low(x))),
 		float64(Reverse32(js.Uint64High(x))))
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func ReverseBytes64(x uint64) uint64 {
 	return js.MakeUint64(
 		float64(ReverseBytes32(js.Uint64Low(x))),
 		float64(ReverseBytes32(js.Uint64High(x))))
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func Add64(x, y, carry uint64) (sum, carryOut uint64) {
 	// Decompose into 32-bit halves and perform the addition as float64,
 	// where JS can represent integers up to 2^53 exactly. js.MakeUint64
@@ -219,7 +219,7 @@ func Add64(x, y, carry uint64) (sum, carryOut uint64) {
 	return
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func Sub64(x, y, borrow uint64) (diff, borrowOut uint64) {
 	// Mirror of nativeAdd64. The $Uint64 constructor correctly handles a
 	// negative `low` value: Math.floor(negative/2^32) returns -1, which
@@ -239,7 +239,7 @@ func Sub64(x, y, borrow uint64) (diff, borrowOut uint64) {
 	return
 }
 
-//gopherjs:replace
+//gopherjs:keep-original the original is kept for testing
 func Mul64(x, y uint64) (uint64, uint64) {
 	const (
 		bit32  = 1 << 32
