@@ -382,7 +382,10 @@ func Div64(hi, lo, y uint64) (quo, rem uint64) {
 	// possible from 32-bit rhat, so we mark skipAdj.
 	var q1, rhat uint32
 	var skipAdj bool
-	if un32Hi >= Yn1 {
+	if un32Hi == 0 {
+		q1 = un32Lo / Yn1
+		rhat = un32Lo - q1*Yn1
+	} else if un32Hi >= Yn1 {
 		q1 = 0xFFFFFFFF
 		sum, carry := Add32(un32Lo, Yn1, 0)
 		if carry != 0 {
