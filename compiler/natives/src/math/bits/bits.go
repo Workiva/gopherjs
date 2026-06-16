@@ -133,12 +133,8 @@ func Mul32(x, y uint32) (hi, lo uint32) {
 
 //gopherjs:replace
 func Mul64(x, y uint64) (uint64, uint64) {
-	const (
-		bit32  = 1 << 32
-		bit16  = 1 << 16
-		mask16 = bit16 - 1
-	)
-	// Get the 16-bits parts so that multiplication keeps under 32-bits.
+	const mask16 = 1<<16 - 1
+	// Decompose x and y into 16-bit parts so each product fits in 32 bits.
 	xLo := js.Uint64Low(x)
 	x0 := xLo & mask16
 	x1 := xLo >> 16
@@ -151,31 +147,92 @@ func Mul64(x, y uint64) (uint64, uint64) {
 	yHi := js.Uint64High(y)
 	y2 := yHi & mask16
 	y3 := yHi >> 16
-	// Columns of the 128-bit product, identified by their bit offset.
-	// Each c<k> holds the still-unreduced sum for bits k..k+16 and is at
-	// most 2^32 - 2^16 (fits in uint32) before we shift the carry on.
+
+	// Compute the 128-bit product using 16-bit column accumulation.
+	// Before processing each column, we split off any overflow (bits >= 16)
+	// into the next column. This ensures each accumulator is at most
+	// 0xFFFF + 0xFFFE0001 = 0xFFFF0000 after adding a product.
+
+	// Column 0 (bits 0-15): 1 product
 	c0 := x0 * y0
 	c16 := c0 >> 16
 	c0 &= mask16
+
+	// Column 16 (bits 16-31): 2 products
 	c16 += x1 * y0
 	c32 := c16 >> 16
 	c16 &= mask16
 	c16 += x0 * y1
 	c32 += c16 >> 16
 	c16 &= mask16
-	// Pack the low 32 bits of the product.
+
+	// Pack lo.$low (bits 0-31)
 	loLo := c16<<16 | c0
-	// The remaining 96 bits are computed in float64. Max value of any
-	// `cN` partial sum is 4*(2^32-1) + small carries ≈ 2^34, exact in
-	// float64. js.MakeUint64 handles low->high carry on each output.
-	mid := float64(c32) + float64(x2*y0) + float64(x1*y1) + float64(x0*y2)
-	// Carry out of `mid` into bit 64
-	midCarry := uint32(mid / bit32)
-	hiLo := float64(midCarry) + float64(x3*y0) + float64(x2*y1) + float64(x1*y2) + float64(x0*y3)
-	hiHi := float64(x3*y1+x2*y2+x1*y3) + // bits 64..96-ish, all 16x16
-		bit16*float64(x3*y2+x2*y3) + // bits 80..96 contribute >>16 of these into bits 96+
-		bit32*float64(x3*y3) // bits 96..128
-	return js.MakeUint64(hiHi, hiLo), js.MakeUint64(mid, float64(loLo))
+
+	// Column 32 (bits 32-47): 3 products
+	// First, split c32 so it's at most 16 bits before adding products
+	c48 := c32 >> 16
+	c32 &= mask16
+	c32 += x2 * y0
+	c48 += c32 >> 16
+	c32 &= mask16
+	c32 += x1 * y1
+	c48 += c32 >> 16
+	c32 &= mask16
+	c32 += x0 * y2
+	c48 += c32 >> 16
+	c32 &= mask16
+
+	// Column 48 (bits 48-63): 4 products
+	c64 := c48 >> 16
+	c48 &= mask16
+	c48 += x3 * y0
+	c64 += c48 >> 16
+	c48 &= mask16
+	c48 += x2 * y1
+	c64 += c48 >> 16
+	c48 &= mask16
+	c48 += x1 * y2
+	c64 += c48 >> 16
+	c48 &= mask16
+	c48 += x0 * y3
+	c64 += c48 >> 16
+	c48 &= mask16
+
+	// Pack lo.$high (bits 32-63)
+	loHi := c48<<16 | c32
+
+	// Column 64 (bits 64-79): 3 products
+	c80 := c64 >> 16
+	c64 &= mask16
+	c64 += x3 * y1
+	c80 += c64 >> 16
+	c64 &= mask16
+	c64 += x2 * y2
+	c80 += c64 >> 16
+	c64 &= mask16
+	c64 += x1 * y3
+	c80 += c64 >> 16
+	c64 &= mask16
+
+	// Column 80 (bits 80-95): 2 products
+	c96 := c80 >> 16
+	c80 &= mask16
+	c80 += x3 * y2
+	c96 += c80 >> 16
+	c80 &= mask16
+	c80 += x2 * y3
+	c96 += c80 >> 16
+	c80 &= mask16
+
+	// Pack hi.$low (bits 64-95)
+	hiLo := c80<<16 | c64
+
+	// Column 96 (bits 96-127): 1 product
+	c96 += x3 * y3
+
+	// hi.$high is c96 (bits 96-127, no masking needed at the top)
+	return js.MakeUint64(float64(c96), float64(hiLo)), js.MakeUint64(float64(loHi), float64(loLo))
 }
 
 //gopherjs:replace

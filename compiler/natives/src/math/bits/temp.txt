@@ -1,0 +1,130 @@
+=== RUN   TestUintSize
+--- PASS: TestUintSize (0.00s)
+=== RUN   TestLeadingZeros
+--- PASS: TestLeadingZeros (0.01s)
+=== RUN   TestTrailingZeros
+--- PASS: TestTrailingZeros (0.01s)
+=== RUN   TestOnesCount
+--- PASS: TestOnesCount (0.01s)
+=== RUN   TestRotateLeft
+--- PASS: TestRotateLeft (0.00s)
+=== RUN   TestReverse
+--- PASS: TestReverse (0.00s)
+=== RUN   TestReverseBytes
+--- PASS: TestReverseBytes (0.00s)
+=== RUN   TestLen
+--- PASS: TestLen (0.01s)
+=== RUN   TestAddSubUint
+--- PASS: TestAddSubUint (0.00s)
+=== RUN   TestAddSubUint32
+--- PASS: TestAddSubUint32 (0.00s)
+=== RUN   TestAddSubUint64
+--- PASS: TestAddSubUint64 (0.00s)
+=== RUN   TestAdd64OverflowPanic
+--- PASS: TestAdd64OverflowPanic (0.00s)
+=== RUN   TestSub64OverflowPanic
+--- PASS: TestSub64OverflowPanic (0.00s)
+=== RUN   TestMulDiv
+--- PASS: TestMulDiv (0.00s)
+=== RUN   TestMulDiv32
+--- PASS: TestMulDiv32 (0.00s)
+=== RUN   TestMulDiv64
+    bits_test.go:998: Mul64: got hi:lo = 0xfffffffefffefffe:0x1; want 0xfffffffffffffffe:0x1
+    bits_test.go:998: Mul64 symmetric: got hi:lo = 0xfffffffefffefffe:0x1; want 0xfffffffffffffffe:0x1
+    bits_test.go:998: Mul64 intrinsic: got hi:lo = 0xfffffffefffefffe:0x1; want 0xfffffffffffffffe:0x1
+    bits_test.go:998: Mul64 intrinsic symmetric: got hi:lo = 0xfffffffefffefffe:0x1; want 0xfffffffffffffffe:0x1
+--- FAIL: TestMulDiv64 (0.00s)
+=== RUN   TestDivPanicOverflow
+--- PASS: TestDivPanicOverflow (0.00s)
+=== RUN   TestDiv32PanicOverflow
+--- PASS: TestDiv32PanicOverflow (0.00s)
+=== RUN   TestDiv64PanicOverflow
+--- PASS: TestDiv64PanicOverflow (0.00s)
+=== RUN   TestDivPanicZero
+--- PASS: TestDivPanicZero (0.00s)
+=== RUN   TestDiv32PanicZero
+--- PASS: TestDiv32PanicZero (0.00s)
+=== RUN   TestDiv64PanicZero
+--- PASS: TestDiv64PanicZero (0.00s)
+=== RUN   TestRem32
+--- PASS: TestRem32 (0.00s)
+=== RUN   TestRem32Overflow
+--- PASS: TestRem32Overflow (0.00s)
+=== RUN   TestRem64
+--- PASS: TestRem64 (0.01s)
+=== RUN   TestRem64Overflow
+--- PASS: TestRem64Overflow (0.00s)
+=== RUN   ExampleAdd32
+--- PASS: ExampleAdd32 (0.00s)
+=== RUN   ExampleAdd64
+--- PASS: ExampleAdd64 (0.00s)
+=== RUN   ExampleSub32
+--- PASS: ExampleSub32 (0.00s)
+=== RUN   ExampleSub64
+--- PASS: ExampleSub64 (0.00s)
+=== RUN   ExampleMul32
+--- PASS: ExampleMul32 (0.00s)
+=== RUN   ExampleMul64
+--- PASS: ExampleMul64 (0.00s)
+=== RUN   ExampleDiv32
+--- PASS: ExampleDiv32 (0.00s)
+=== RUN   ExampleDiv64
+--- PASS: ExampleDiv64 (0.00s)
+=== RUN   ExampleLeadingZeros8
+--- PASS: ExampleLeadingZeros8 (0.00s)
+=== RUN   ExampleLeadingZeros16
+--- PASS: ExampleLeadingZeros16 (0.00s)
+=== RUN   ExampleLeadingZeros32
+--- PASS: ExampleLeadingZeros32 (0.00s)
+=== RUN   ExampleLeadingZeros64
+--- PASS: ExampleLeadingZeros64 (0.00s)
+=== RUN   ExampleTrailingZeros8
+--- PASS: ExampleTrailingZeros8 (0.00s)
+=== RUN   ExampleTrailingZeros16
+--- PASS: ExampleTrailingZeros16 (0.00s)
+=== RUN   ExampleTrailingZeros32
+--- PASS: ExampleTrailingZeros32 (0.00s)
+=== RUN   ExampleTrailingZeros64
+--- PASS: ExampleTrailingZeros64 (0.00s)
+=== RUN   ExampleOnesCount
+--- PASS: ExampleOnesCount (0.00s)
+=== RUN   ExampleOnesCount8
+--- PASS: ExampleOnesCount8 (0.00s)
+=== RUN   ExampleOnesCount16
+--- PASS: ExampleOnesCount16 (0.00s)
+=== RUN   ExampleOnesCount32
+--- PASS: ExampleOnesCount32 (0.00s)
+=== RUN   ExampleOnesCount64
+--- PASS: ExampleOnesCount64 (0.00s)
+=== RUN   ExampleRotateLeft8
+--- PASS: ExampleRotateLeft8 (0.00s)
+=== RUN   ExampleRotateLeft16
+--- PASS: ExampleRotateLeft16 (0.00s)
+=== RUN   ExampleRotateLeft32
+--- PASS: ExampleRotateLeft32 (0.00s)
+=== RUN   ExampleRotateLeft64
+--- PASS: ExampleRotateLeft64 (0.00s)
+=== RUN   ExampleReverse8
+--- PASS: ExampleReverse8 (0.00s)
+=== RUN   ExampleReverse16
+--- PASS: ExampleReverse16 (0.00s)
+=== RUN   ExampleReverse32
+--- PASS: ExampleReverse32 (0.00s)
+=== RUN   ExampleReverse64
+--- PASS: ExampleReverse64 (0.00s)
+=== RUN   ExampleReverseBytes16
+--- PASS: ExampleReverseBytes16 (0.00s)
+=== RUN   ExampleReverseBytes32
+--- PASS: ExampleReverseBytes32 (0.00s)
+=== RUN   ExampleReverseBytes64
+--- PASS: ExampleReverseBytes64 (0.00s)
+=== RUN   ExampleLen8
+--- PASS: ExampleLen8 (0.00s)
+=== RUN   ExampleLen16
+--- PASS: ExampleLen16 (0.00s)
+=== RUN   ExampleLen32
+--- PASS: ExampleLen32 (0.00s)
+=== RUN   ExampleLen64
+--- PASS: ExampleLen64 (0.00s)
+FAIL
+FAIL    math/bits       0.324s
