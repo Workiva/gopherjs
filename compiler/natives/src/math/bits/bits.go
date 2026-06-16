@@ -326,10 +326,10 @@ func Div64(hi, lo, y uint64) (quo, rem uint64) {
 	// operating on 32-bit halves to avoid using uint64 operations that we have
 	// to emulate in JS.
 	//
-	// The original math/bits.Div64 appears to be based on:
+	// The original math/bits.Div64 appears to be based on
+	// Algorithm D (Division of nonnegative integers) 4.3.1 starting on page 257 in
 	// "The Art of Computer Programming" (TAoCP) Vol. 2 by Knuth
 	// (a copy can be found at https://github.com/Code42Cate/The-Art-of-Computer-Programming/blob/master/Volume2.pdf)
-	// describes Algorithm D (Division of nonnegative integers) in 4.3.1 starting on page 257.
 	yHi := js.Uint64High(y)
 	yLo := js.Uint64Low(y)
 	if yHi == 0 && yLo == 0 {
