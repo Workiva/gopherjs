@@ -330,84 +330,79 @@ func Div64(hi, lo, y uint64) (quo, rem uint64) {
 	// Algorithm D (Division of nonnegative integers) 4.3.1 starting on page 257 in
 	// "The Art of Computer Programming" (TAoCP) Vol. 2 by Knuth
 	// (a copy can be found at https://github.com/Code42Cate/The-Art-of-Computer-Programming/blob/master/Volume2.pdf)
-	yHi := js.Uint64High(y)
-	yLo := js.Uint64Low(y)
-	if yHi == 0 && yLo == 0 {
+	yn1 := js.Uint64High(y)
+	yn0 := js.Uint64Low(y)
+	if yn1 == 0 && yn0 == 0 {
 		panic(divideError)
 	}
-	hiHi := js.Uint64High(hi)
-	hiLo := js.Uint64Low(hi)
-	if yHi < hiHi || (yHi == hiHi && yLo <= hiLo) {
+	un32Hi := js.Uint64High(hi)
+	un32Lo := js.Uint64Low(hi)
+	if yn1 < un32Hi || (yn1 == un32Hi && yn0 <= un32Lo) {
 		panic(overflowError)
 	}
-	loHi := js.Uint64High(lo)
-	loLo := js.Uint64Low(lo)
+	un1 := js.Uint64High(lo)
+	un0 := js.Uint64Low(lo)
 
 	// If divisor fits in 32 bits, then the y > hi precondition forces
-	// hiHi == 0 and hiLo < yLo, so neither Div32 below can overflow.
-	if yHi == 0 {
-		q1, r1 := Div32(hiLo, loHi, yLo)
-		q0, r0 := Div32(r1, loLo, yLo)
+	// un32Hi == 0 and un32Lo < yn0, so neither Div32 below can overflow.
+	// (At this point the limb names still hold their pre-shift values.)
+	if yn1 == 0 {
+		q1, r1 := Div32(un32Lo, un1, yn0)
+		q0, r0 := Div32(r1, un0, yn0)
 		return js.MakeUint64(float64(q1), float64(q0)),
 			js.MakeUint64(0, float64(r0))
 	}
 
-	// yHi != 0 (full 64-bit divisor).
-	// Normalize so the divisor's top bit is set; s is in [0, 31].
-	s := uint(LeadingZeros32(yHi))
+	// yn1 != 0 (full 64-bit divisor).
+	// Normalize so the divisor's top bit is set; s is in [0, 31]. We update
+	// the six limbs in place — each assignment reads the OLD values of the
+	// variables on its right since they are not overwritten until subsequent
+	// lines. Because hi < y (precondition), hi << s still fits in 64 bits.
+	s := uint(LeadingZeros32(yn1))
 	rs := 32 - s
-
-	// Shifted divisor Y = y << s = (Yn1:Yn0).
-	// Shifted dividend U = (hi:lo) << s = (un32Hi:un32Lo:un1:un0).
-	// Because hi < y (precondition), hi << s still fits in 64 bits.
-	var Yn1, Yn0, un32Hi, un32Lo, un1, un0 uint32
-	if s == 0 {
-		Yn1, Yn0 = yHi, yLo
-		un32Hi, un32Lo = hiHi, hiLo
-		un1, un0 = loHi, loLo
-	} else {
-		Yn1 = yHi<<s | yLo>>rs
-		Yn0 = yLo << s
-		un32Hi = hiHi<<s | hiLo>>rs
-		un32Lo = hiLo<<s | loHi>>rs
-		un1 = loHi<<s | loLo>>rs
-		un0 = loLo << s
+	if s != 0 {
+		yn1 = yn1<<s | yn0>>rs
+		yn0 = yn0 << s
+		un32Hi = un32Hi<<s | un32Lo>>rs
+		un32Lo = un32Lo<<s | un1>>rs
+		un1 = un1<<s | un0>>rs
+		un0 = un0 << s
 	}
 
-	// --- First quotient digit q1 ≈ (un32Hi:un32Lo) / Yn1 ---
-	// Precondition un32 < Y gives un32Hi <= Yn1. When un32Hi == Yn1 the
+	// --- First quotient digit q1 ≈ (un32Hi:un32Lo) / yn1 ---
+	// Precondition un32 < y gives un32Hi <= yn1. When un32Hi == yn1 the
 	// true digit is 2^32 or 2^32+1; Knuth's loop implicitly decrements it
-	// to 2^32-1 with rhat = un32Lo + Yn1. If that sum overflows uint32 the
+	// to 2^32-1 with rhat = un32Lo + yn1. If that sum overflows uint32 the
 	// loop's "rhat >= two32" early-exit fires and no further adjustment is
 	// possible from 32-bit rhat, so we mark skipAdj.
 	var q1, rhat uint32
 	var skipAdj bool
 	if un32Hi == 0 {
-		q1 = un32Lo / Yn1
-		rhat = un32Lo - q1*Yn1
-	} else if un32Hi >= Yn1 {
+		q1 = un32Lo / yn1
+		rhat = un32Lo - q1*yn1
+	} else if un32Hi >= yn1 {
 		q1 = 0xFFFFFFFF
-		sum, carry := Add32(un32Lo, Yn1, 0)
+		sum, carry := Add32(un32Lo, yn1, 0)
 		if carry != 0 {
 			skipAdj = true
 		} else {
 			rhat = sum
 		}
 	} else {
-		q1, rhat = Div32(un32Hi, un32Lo, Yn1)
+		q1, rhat = Div32(un32Hi, un32Lo, yn1)
 	}
 
-	// Track q1 * Yn0 incrementally across the correction loop so we avoid
+	// Track q1 * yn0 incrementally across the correction loop so we avoid
 	// re-multiplying every iteration and can reuse the final value for un21.
-	qynHi, qynLo := Mul32(q1, Yn0)
+	qynHi, qynLo := Mul32(q1, yn0)
 	if !skipAdj {
 		for qynHi > rhat || (qynHi == rhat && qynLo > un1) {
 			q1--
-			if qynLo < Yn0 {
+			if qynLo < yn0 {
 				qynHi--
 			}
-			qynLo -= Yn0
-			sum, carry := Add32(rhat, Yn1, 0)
+			qynLo -= yn0
+			sum, carry := Add32(rhat, yn1, 0)
 			if carry != 0 {
 				break
 			}
@@ -418,38 +413,38 @@ func Div64(hi, lo, y uint64) (quo, rem uint64) {
 	// un21 = (un32:un1) - q1*y, mod 2^64.
 	// (un32 << 32) mod 2^64 = (un32Lo : 0), so the top half of un21 is
 	// computed from un32Lo (not un32Hi). q1*y mod 2^64 has high 32 bits
-	// q1*Yn1 + carry(q1*Yn0); both intentionally wrap modulo 2^32.
-	qyHi := q1*Yn1 + qynHi
+	// q1*yn1 + carry(q1*yn0); both intentionally wrap modulo 2^32.
+	qyHi := q1*yn1 + qynHi
 	un21Lo := un1 - qynLo
 	un21Hi := un32Lo - qyHi
 	if un1 < qynLo {
 		un21Hi--
 	}
 
-	// --- Second quotient digit q0 ≈ (un21Hi:un21Lo) / Yn1 ---
+	// --- Second quotient digit q0 ≈ (un21Hi:un21Lo) / yn1 ---
 	var q0 uint32
 	skipAdj = false
-	if un21Hi >= Yn1 {
+	if un21Hi >= yn1 {
 		q0 = 0xFFFFFFFF
-		sum, carry := Add32(un21Lo, Yn1, 0)
-		if carry != 0 || un21Hi > Yn1 {
+		sum, carry := Add32(un21Lo, yn1, 0)
+		if carry != 0 || un21Hi > yn1 {
 			skipAdj = true
 		} else {
 			rhat = sum
 		}
 	} else {
-		q0, rhat = Div32(un21Hi, un21Lo, Yn1)
+		q0, rhat = Div32(un21Hi, un21Lo, yn1)
 	}
 
-	qynHi, qynLo = Mul32(q0, Yn0)
+	qynHi, qynLo = Mul32(q0, yn0)
 	if !skipAdj {
 		for qynHi > rhat || (qynHi == rhat && qynLo > un0) {
 			q0--
-			if qynLo < Yn0 {
+			if qynLo < yn0 {
 				qynHi--
 			}
-			qynLo -= Yn0
-			sum, carry := Add32(rhat, Yn1, 0)
+			qynLo -= yn0
+			sum, carry := Add32(rhat, yn1, 0)
 			if carry != 0 {
 				break
 			}
@@ -458,9 +453,10 @@ func Div64(hi, lo, y uint64) (quo, rem uint64) {
 	}
 
 	// Remainder = (un21:un0) - q0*y, mod 2^64, then >> s to denormalize.
-	qyHi2 := q0*Yn1 + qynHi
+	// qyHi is dead after the un21 computation above, so reuse it here.
+	qyHi = q0*yn1 + qynHi
 	remLo := un0 - qynLo
-	remHi := un21Lo - qyHi2
+	remHi := un21Lo - qyHi
 	if un0 < qynLo {
 		remHi--
 	}
