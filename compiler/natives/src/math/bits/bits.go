@@ -322,13 +322,14 @@ func Div32(hi, lo, y uint32) (quo, rem uint32) {
 
 //gopherjs:replace
 func Div64(hi, lo, y uint64) (quo, rem uint64) {
-	// Reference: "The Art of Computer Programming" (TAoCP) Vol. 2 by Knuth
-	// (a copy can be found at https://github.com/Code42Cate/The-Art-of-Computer-Programming/blob/master/Volume2.pdf)
-	// describes Algorithm D (Division of nonnegative integers) in 4.3.1 starting on page 257.
-	//
 	// This code is similar to the original math/bits.Div64	with all arithmetic
 	// operating on 32-bit halves to avoid using uint64 operations that we have
 	// to emulate in JS.
+	//
+	// The original math/bits.Div64 appears to be based on:
+	// "The Art of Computer Programming" (TAoCP) Vol. 2 by Knuth
+	// (a copy can be found at https://github.com/Code42Cate/The-Art-of-Computer-Programming/blob/master/Volume2.pdf)
+	// describes Algorithm D (Division of nonnegative integers) in 4.3.1 starting on page 257.
 	yHi := js.Uint64High(y)
 	yLo := js.Uint64Low(y)
 	if yHi == 0 && yLo == 0 {
@@ -342,7 +343,7 @@ func Div64(hi, lo, y uint64) (quo, rem uint64) {
 	loHi := js.Uint64High(lo)
 	loLo := js.Uint64Low(lo)
 
-	// Fast path: divisor fits in 32 bits. The y > hi precondition forces
+	// If divisor fits in 32 bits, then the y > hi precondition forces
 	// hiHi == 0 and hiLo < yLo, so neither Div32 below can overflow.
 	if yHi == 0 {
 		q1, r1 := Div32(hiLo, loHi, yLo)
@@ -351,7 +352,7 @@ func Div64(hi, lo, y uint64) (quo, rem uint64) {
 			js.MakeUint64(0, float64(r0))
 	}
 
-	// General case: yHi != 0 (full 64-bit divisor).
+	// yHi != 0 (full 64-bit divisor).
 	// Normalize so the divisor's top bit is set; s is in [0, 31].
 	s := uint(LeadingZeros32(yHi))
 	rs := 32 - s
