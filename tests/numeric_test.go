@@ -60,7 +60,7 @@ func TestMul64(t *testing.T) {
 	})
 }
 
-func BenchmarkMul64(b *testing.B) {
+func BenchmarkMulDivRem64(b *testing.B) {
 	// Prepare a randomized set of multipliers to make sure the benchmark doesn't
 	// get too specific for a single value. The trade-off is that the cost of
 	// loading from an array gets mixed into the result, but it is good enough for
@@ -86,16 +86,48 @@ func BenchmarkMul64(b *testing.B) {
 			runtime.KeepAlive(xU[i%size])
 		}
 	})
-	b.Run("unsigned", func(b *testing.B) {
+	b.Run("Mul unsigned", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			z := xU[i%size] * yU[i%size]
 			runtime.KeepAlive(z)
 		}
 	})
-	b.Run("signed", func(b *testing.B) {
+	b.Run("Mul signed", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			z := xS[i%size] * yS[i%size]
 			runtime.KeepAlive(z)
+		}
+	})
+	b.Run("Div unsigned", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if y := yU[i%size]; y != 0 {
+				z := xU[i%size] / y
+				runtime.KeepAlive(z)
+			}
+		}
+	})
+	b.Run("Div signed", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if y := yS[i%size]; y != 0 {
+				z := xS[i%size] / y
+				runtime.KeepAlive(z)
+			}
+		}
+	})
+	b.Run("Rem unsigned", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if y := yU[i%size]; y != 0 {
+				z := xU[i%size] % y
+				runtime.KeepAlive(z)
+			}
+		}
+	})
+	b.Run("Rem signed", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if y := yS[i%size]; y != 0 {
+				z := xS[i%size] % yS[i%size]
+				runtime.KeepAlive(z)
+			}
 		}
 	})
 }
