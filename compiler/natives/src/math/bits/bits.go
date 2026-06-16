@@ -135,6 +135,11 @@ func Mul32(x, y uint32) (hi, lo uint32) {
 func Mul64(x, y uint64) (uint64, uint64) {
 	const mask16 = 1<<16 - 1
 	// Decompose x and y into 16-bit parts so each product fits in 32 bits.
+	// Compute the 128-bit product using 16-bit column accumulation.
+	// This code could be simplified using Mul32 but that will take longer
+	// to run since Mul32 would have to decompose into 16-bit parts then
+	// repack them into 32-bit numbers for every call, so it is faster
+	// to keep the values decomposed as 16-bit numbers.
 	xLo := js.Uint64Low(x)
 	x0 := xLo & mask16
 	x1 := xLo >> 16
@@ -147,17 +152,10 @@ func Mul64(x, y uint64) (uint64, uint64) {
 	yHi := js.Uint64High(y)
 	y2 := yHi & mask16
 	y3 := yHi >> 16
-
-	// Compute the 128-bit product using 16-bit column accumulation.
-	// Before processing each column, we split off any overflow (bits >= 16)
-	// into the next column. This ensures each accumulator is at most
-	// 0xFFFF + 0xFFFE0001 = 0xFFFF0000 after adding a product.
-
 	// Column 0 (bits 0-15): 1 product
 	c0 := x0 * y0
 	c16 := c0 >> 16
 	c0 &= mask16
-
 	// Column 16 (bits 16-31): 2 products
 	c16 += x1 * y0
 	c32 := c16 >> 16
@@ -165,10 +163,8 @@ func Mul64(x, y uint64) (uint64, uint64) {
 	c16 += x0 * y1
 	c32 += c16 >> 16
 	c16 &= mask16
-
 	// Pack lo.$low (bits 0-31)
 	loLo := c16<<16 | c0
-
 	// Column 32 (bits 32-47): 3 products
 	// First, split c32 so it's at most 16 bits before adding products
 	c48 := c32 >> 16
@@ -182,7 +178,6 @@ func Mul64(x, y uint64) (uint64, uint64) {
 	c32 += x0 * y2
 	c48 += c32 >> 16
 	c32 &= mask16
-
 	// Column 48 (bits 48-63): 4 products
 	c64 := c48 >> 16
 	c48 &= mask16
@@ -198,10 +193,8 @@ func Mul64(x, y uint64) (uint64, uint64) {
 	c48 += x0 * y3
 	c64 += c48 >> 16
 	c48 &= mask16
-
 	// Pack lo.$high (bits 32-63)
 	loHi := c48<<16 | c32
-
 	// Column 64 (bits 64-79): 3 products
 	c80 := c64 >> 16
 	c64 &= mask16
@@ -214,7 +207,6 @@ func Mul64(x, y uint64) (uint64, uint64) {
 	c64 += x1 * y3
 	c80 += c64 >> 16
 	c64 &= mask16
-
 	// Column 80 (bits 80-95): 2 products
 	c96 := c80 >> 16
 	c80 &= mask16
@@ -224,13 +216,10 @@ func Mul64(x, y uint64) (uint64, uint64) {
 	c80 += x2 * y3
 	c96 += c80 >> 16
 	c80 &= mask16
-
 	// Pack hi.$low (bits 64-95)
 	hiLo := c80<<16 | c64
-
 	// Column 96 (bits 96-127): 1 product
 	c96 += x3 * y3
-
 	// hi.$high is c96 (bits 96-127, no masking needed at the top)
 	return js.MakeUint64(float64(c96), float64(hiLo)), js.MakeUint64(float64(loHi), float64(loLo))
 }
@@ -331,10 +320,9 @@ func Div32(hi, lo, y uint32) (quo, rem uint32) {
 	return q1*two16 + q0, (un21*two16 + un0 - q0*y) >> s
 }
 
-//gopherjs:keep-original
+//gopherjs:remove
 func Div64(hi, lo, y uint64) (quo, rem uint64) {
-	// TODO(grantnelson-wf): Add override or remove
-	return _gopherjs_original_Div64(hi, lo, y)
+	// TODO: Agent insert code here
 }
 
 //gopherjs:replace
@@ -347,10 +335,4 @@ func Rem32(hi, lo, y uint32) uint32 {
 	//   hi<<64 + lo ≡ (hi%y)<<64 + lo    (mod y)
 	_, rem := Div32(hi%y, lo, y)
 	return rem
-}
-
-//gopherjs:keep-original
-func Rem64(hi, lo, y uint64) uint64 {
-	// TODO(grantnelson-wf): Add override or remove
-	return _gopherjs_original_Rem64(hi, lo, y)
 }
