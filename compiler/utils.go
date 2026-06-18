@@ -16,6 +16,7 @@ import (
 	"strings"
 	"text/template"
 	"unicode"
+	"unicode/utf16"
 
 	"github.com/gopherjs/gopherjs/compiler/internal/analysis"
 	"github.com/gopherjs/gopherjs/compiler/internal/typeparams"
@@ -633,7 +634,7 @@ func (fc *funcContext) selectionOf(e *ast.SelectorExpr) (typesutil.Selection, bo
 	return nil, false
 }
 
-func (fc *funcContext) externalize(s string, t types.Type) string {
+func (fc *funcContext) externalize(s string, t types.Type, expr ast.Expr) string {
 	if typesutil.IsJsObject(t) {
 		return s
 	}
@@ -644,6 +645,13 @@ func (fc *funcContext) externalize(s string, t types.Type) string {
 		}
 		if u.Kind() == types.UntypedNil {
 			return "null"
+		}
+		if isString(u) {
+			// If the string is a literal it can be preexternalized.
+			val := fc.pkgCtx.Types[expr].Value
+			if val != nil && val.Kind() == constant.String {
+				return preexternalizeString(constant.StringVal(val))
+			}
 		}
 	}
 	return fmt.Sprintf("$externalize(%s, %s)", s, fc.typeName(t))
@@ -807,34 +815,85 @@ func isWrapped(ty types.Type) bool {
 }
 
 func encodeString(s string) string {
-	buffer := bytes.NewBuffer(nil)
-	for _, r := range []byte(s) {
-		switch r {
-		case '\b':
-			buffer.WriteString(`\b`)
-		case '\f':
-			buffer.WriteString(`\f`)
-		case '\n':
-			buffer.WriteString(`\n`)
-		case '\r':
-			buffer.WriteString(`\r`)
-		case '\t':
-			buffer.WriteString(`\t`)
-		case '\v':
-			buffer.WriteString(`\v`)
-		case '"':
-			buffer.WriteString(`\"`)
-		case '\\':
-			buffer.WriteString(`\\`)
-		default:
-			if r < 0x20 || r > 0x7E {
-				fmt.Fprintf(buffer, `\x%02X`, r)
-				continue
+	sb := &strings.Builder{}
+	sb.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		writeChar(s[i], sb)
+	}
+	sb.WriteByte('"')
+	return sb.String()
+}
+
+// writeChar writes the given 8-bit or 16-bit number to the given string buffer.
+// The character will be escaped if needed, outputted as ascii if printable,
+// or outputted as `\xHH` for 8-bit and `\uHHHH` for 16-bit otherwise.
+func writeChar[char uint8 | uint16](r char, sb *strings.Builder) {
+	switch r {
+	case '\b':
+		sb.WriteString(`\b`)
+	case '\f':
+		sb.WriteString(`\f`)
+	case '\n':
+		sb.WriteString(`\n`)
+	case '\r':
+		sb.WriteString(`\r`)
+	case '\t':
+		sb.WriteString(`\t`)
+	case '\v':
+		sb.WriteString(`\v`)
+	case '"':
+		sb.WriteString(`\"`)
+	case '\\':
+		sb.WriteString(`\\`)
+	default:
+		if r < 0x20 || r >= unicode.MaxASCII {
+			switch v := any(r).(type) {
+			case uint8:
+				fmt.Fprintf(sb, `\x%02X`, v)
+			case uint16:
+				fmt.Fprintf(sb, `\u%04X`, v)
 			}
-			buffer.WriteByte(r)
+			break
+		}
+		sb.WriteByte(byte(r))
+	}
+}
+
+// preexternalizeString returns a JS string literal whose UTF-16 code units
+// match the runes of s.
+//
+// Unlike encodeString (which preserves Go's UTF-8 byte view of
+// a string for in-Go-runtime use and correct byte indexing), this is used
+// for strings that need to be externalized into JS's UTF-16 format.
+//
+// This is for pre-externalizing string literals at compile time and
+// is equivalent to `$externalize("string literal", $String)` at runtime.
+func preexternalizeString(s string) string {
+	isASCII := true
+	for i := 0; i < len(s); i++ {
+		if s[i] > unicode.MaxASCII {
+			isASCII = false
+			break
 		}
 	}
-	return `"` + buffer.String() + `"`
+	if isASCII {
+		return encodeString(s)
+	}
+
+	sb := &strings.Builder{}
+	sb.WriteByte('"')
+	const surrSelf = 0x10000
+	for _, r := range s {
+		if r >= surrSelf {
+			hi, lo := utf16.EncodeRune(r)
+			writeChar(uint16(hi), sb)
+			writeChar(uint16(lo), sb)
+			continue
+		}
+		writeChar(uint16(r), sb)
+	}
+	sb.WriteByte('"')
+	return sb.String()
 }
 
 func getJsTag(tag string) string {

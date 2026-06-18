@@ -750,7 +750,7 @@ func (fc *funcContext) translateAssign(lhs, rhs ast.Expr, define bool) string {
 		}
 		fields, jsTag := fc.translateSelection(sel, l.Pos())
 		if jsTag != "" {
-			return fmt.Sprintf("%s.%s%s = %s;", fc.translateExpr(l.X), strings.Join(fields, "."), formatJSStructTagVal(jsTag), fc.externalize(rhsExpr.String(), sel.Type()))
+			return fmt.Sprintf("%s.%s%s = %s;", fc.translateExpr(l.X), strings.Join(fields, "."), formatJSStructTagVal(jsTag), fc.externalize(rhsExpr.String(), sel.Type(), rhs))
 		}
 		return fmt.Sprintf("%s.%s = %s;", fc.translateExpr(l.X), strings.Join(fields, "."), rhsExpr)
 	case *ast.StarExpr:

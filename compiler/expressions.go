@@ -683,7 +683,7 @@ func (fc *funcContext) translateExpr(expr ast.Expr) *expression {
 				if types.Identical(t, types.Typ[types.UntypedNil]) {
 					return "null"
 				}
-				return fc.externalize(fc.translateExpr(e).String(), t)
+				return fc.externalize(fc.translateExpr(e).String(), t, e)
 			}
 			externalizeArgs := func(args []ast.Expr) string {
 				s := make([]string, len(args))
@@ -709,14 +709,14 @@ func (fc *funcContext) translateExpr(expr ast.Expr) *expression {
 						if id, ok := fc.identifierConstant(e.Args[0]); ok {
 							return fc.formatExpr("%s", globalRef(id))
 						}
-						return fc.formatExpr("%s[$externalize(%e, $String)]", recv, e.Args[0])
+						return fc.formatExpr("%s[%s]", recv, externalizeExpr(e.Args[0]))
 					case "Set":
 						if id, ok := fc.identifierConstant(e.Args[0]); ok {
 							return fc.formatExpr("%s = %s", globalRef(id), externalizeExpr(e.Args[1]))
 						}
-						return fc.formatExpr("%s[$externalize(%e, $String)] = %s", recv, e.Args[0], externalizeExpr(e.Args[1]))
+						return fc.formatExpr("%s[%s] = %s", recv, externalizeExpr(e.Args[0]), externalizeExpr(e.Args[1]))
 					case "Delete":
-						return fc.formatExpr("delete %s[$externalize(%e, $String)]", recv, e.Args[0])
+						return fc.formatExpr("delete %s[%s]", recv, externalizeExpr(e.Args[0]))
 					case "Length":
 						return fc.formatExpr("$parseInt(%s.length)", recv)
 					case "Index":
@@ -733,9 +733,9 @@ func (fc *funcContext) translateExpr(expr ast.Expr) *expression {
 						}
 						if e.Ellipsis.IsValid() {
 							objVar := fc.newLocalVariable("obj")
-							return fc.formatExpr("(%s = %s, %s[$externalize(%e, $String)].apply(%s, %s))", objVar, recv, objVar, e.Args[0], objVar, externalizeExpr(e.Args[1]))
+							return fc.formatExpr("(%s = %s, %s[%s].apply(%s, %s))", objVar, recv, objVar, externalizeExpr(e.Args[0]), objVar, externalizeExpr(e.Args[1]))
 						}
-						return fc.formatExpr("%s[$externalize(%e, $String)](%s)", recv, e.Args[0], externalizeArgs(e.Args[1:]))
+						return fc.formatExpr("%s[%s](%s)", recv, externalizeExpr(e.Args[0]), externalizeArgs(e.Args[1:]))
 					case "Invoke":
 						if e.Ellipsis.IsValid() {
 							return fc.formatExpr("%s.apply(undefined, %s)", recv, externalizeExpr(e.Args[0]))
