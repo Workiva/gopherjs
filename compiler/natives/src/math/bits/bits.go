@@ -56,14 +56,6 @@ func TrailingZeros64(x uint64) int {
 }
 
 //gopherjs:replace
-func OnesCount32(x uint32) int {
-	x = x - ((x >> 1) & 0x55555555)
-	x = (x & 0x33333333) + ((x >> 2) & 0x33333333)
-	x = (x + (x >> 4)) & 0x0F0F0F0F
-	return int((x * 0x01010101) >> 24)
-}
-
-//gopherjs:replace
 func OnesCount64(x uint64) int {
 	return OnesCount32(js.Uint64High(x)) + OnesCount32(js.Uint64Low(x))
 }
@@ -235,8 +227,8 @@ func Add32(x, y, carry uint32) (sum, carryOut uint32) {
 //gopherjs:replace
 func Add64(x, y, carry uint64) (sum, carryOut uint64) {
 	// Decompose into 32-bit halves and perform the addition as float64,
-	// where JS can represent integers up to 2^53 exactly. js.MakeUint64
-	// handles low->high carry propagation automatically.
+	// where JS can represent integers up to 2^53 exactly.
+	// js.MakeUint64 handles low->high carry propagation automatically.
 	hiSum := float64(js.Uint64High(x)) + float64(js.Uint64High(y))
 	loSum := float64(js.Uint64Low(x)) + float64(js.Uint64Low(y)) + float64(js.Uint64Low(carry))
 	sum = js.MakeUint64(hiSum, loSum)

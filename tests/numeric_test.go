@@ -344,3 +344,132 @@ func Test_MinMax(t *testing.T) {
 		t.Errorf("max(..NaN..): got: %v, want: %v", got, math.NaN())
 	}
 }
+
+func Benchmark_Native_MathBits(b *testing.B) {
+	if runtime.GOOS != "js" {
+		b.Skip("native bit functions use JS-specific features")
+	}
+
+	const (
+		inputSize = 1024
+		randSeed  = 0xC0FFEE
+		// set trial count and randomize to take multiple samples and randomize
+		// the order of the tests to help reduce burn-in error and noise.
+		trialCount = 1
+		randomize  = false
+	)
+
+	type mathBitsBenchArg struct {
+		x8                      uint8
+		x16                     uint16
+		x32, y32, z32, w32, c32 uint32
+		x64, y64, z64, w64, c64 uint64
+		k                       int
+	}
+
+	r := rand.New(rand.NewSource(randSeed))
+	ins := make([]*mathBitsBenchArg, inputSize)
+	for i := 0; i < inputSize; i++ {
+		x32 := r.Uint32()
+		y32 := r.Uint32()
+		c32 := r.Uint32() & 1 // carry or borrow must be 0 or 1
+		w32 := r.Uint32()     // w32 != 0
+		if w32 == 0 {
+			w32 = 1
+		}
+		z32 := r.Uint32() % w32 // z32 < w32
+		x64 := r.Uint64()
+		y64 := r.Uint64()
+		c64 := r.Uint64() & 1
+		w64 := r.Uint64() | 1 // w64 != 0
+		if w64 == 0 {
+			w64 = 1
+		}
+		z64 := r.Uint64() % w64 // z64 < w64
+		k := int(r.Uint32())
+		ins[i] = &mathBitsBenchArg{
+			x8: uint8(x32), x16: uint16(x32),
+			x32: x32, y32: y32, z32: z32, w32: w32, c32: c32,
+			x64: x64, y64: y64, z64: z64, w64: w64, c64: c64, k: k,
+		}
+	}
+
+	type testFn struct {
+		name string
+		fn   func(*mathBitsBenchArg)
+	}
+
+	tests := []testFn{
+		// --- LeadingZeros ---
+		{name: `LeadingZeros8`, fn: func(arg *mathBitsBenchArg) { _ = bits.LeadingZeros8(arg.x8) }},
+		{name: `LeadingZeros16`, fn: func(arg *mathBitsBenchArg) { _ = bits.LeadingZeros16(arg.x16) }},
+		{name: `LeadingZeros32`, fn: func(arg *mathBitsBenchArg) { _ = bits.LeadingZeros32(arg.x32) }},
+		{name: "LeadingZeros64", fn: func(arg *mathBitsBenchArg) { _ = bits.LeadingZeros64(arg.x64) }},
+		// --- TrailingZeros ---
+		{name: `TrailingZeros8`, fn: func(arg *mathBitsBenchArg) { _ = bits.TrailingZeros8(arg.x8) }},
+		{name: `TrailingZeros16`, fn: func(arg *mathBitsBenchArg) { _ = bits.TrailingZeros16(arg.x16) }},
+		{name: `TrailingZeros32`, fn: func(arg *mathBitsBenchArg) { _ = bits.TrailingZeros32(arg.x32) }},
+		{name: "TrailingZeros64", fn: func(arg *mathBitsBenchArg) { _ = bits.TrailingZeros64(arg.x64) }},
+		// --- OnesCount ---
+		{name: `OnesCount8`, fn: func(arg *mathBitsBenchArg) { _ = bits.OnesCount8(arg.x8) }},
+		{name: `OnesCount16`, fn: func(arg *mathBitsBenchArg) { _ = bits.OnesCount16(arg.x16) }},
+		{name: `OnesCount32`, fn: func(arg *mathBitsBenchArg) { _ = bits.OnesCount32(arg.x32) }},
+		{name: "OnesCount64", fn: func(arg *mathBitsBenchArg) { _ = bits.OnesCount64(arg.x64) }},
+		// --- RotateLeft ---
+		{name: "RotateLeft8", fn: func(arg *mathBitsBenchArg) { _ = bits.RotateLeft8(arg.x8, arg.k) }},
+		{name: "RotateLeft16", fn: func(arg *mathBitsBenchArg) { _ = bits.RotateLeft16(arg.x16, arg.k) }},
+		{name: "RotateLeft32", fn: func(arg *mathBitsBenchArg) { _ = bits.RotateLeft32(arg.x32, arg.k) }},
+		{name: "RotateLeft64", fn: func(arg *mathBitsBenchArg) { _ = bits.RotateLeft64(arg.x64, arg.k) }},
+		// --- Reverse ---
+		{name: "Reverse8", fn: func(arg *mathBitsBenchArg) { _ = bits.Reverse8(arg.x8) }},
+		{name: "Reverse16", fn: func(arg *mathBitsBenchArg) { _ = bits.Reverse16(arg.x16) }},
+		{name: "Reverse32", fn: func(arg *mathBitsBenchArg) { _ = bits.Reverse32(arg.x32) }},
+		{name: "Reverse64", fn: func(arg *mathBitsBenchArg) { _ = bits.Reverse64(arg.x64) }},
+		// --- ReverseBytes ---
+		{name: "ReverseBytes16", fn: func(arg *mathBitsBenchArg) { _ = bits.ReverseBytes16(arg.x16) }},
+		{name: "ReverseBytes32", fn: func(arg *mathBitsBenchArg) { _ = bits.ReverseBytes32(arg.x32) }},
+		{name: "ReverseBytes64", fn: func(arg *mathBitsBenchArg) { _ = bits.ReverseBytes64(arg.x64) }},
+		// --- Len ---
+		{name: `Len8`, fn: func(arg *mathBitsBenchArg) { _ = bits.Len8(arg.x8) }},
+		{name: `Len16`, fn: func(arg *mathBitsBenchArg) { _ = bits.Len16(arg.x16) }},
+		{name: `Len32`, fn: func(arg *mathBitsBenchArg) { _ = bits.Len32(arg.x32) }},
+		{name: "Len64", fn: func(arg *mathBitsBenchArg) { _ = bits.Len64(arg.x64) }},
+		// --- Add with carry ---
+		{name: "Add32", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Add32(arg.x32, arg.y32, arg.c32) }},
+		{name: "Add64", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Add64(arg.x64, arg.y64, arg.c64) }},
+		// --- Subtract with borrow ---
+		{name: "Sub32", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Sub32(arg.x32, arg.y32, arg.c32) }},
+		{name: "Sub64", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Sub64(arg.x64, arg.y64, arg.c64) }},
+		// --- Full-width multiply ---
+		{name: "Mul32", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Mul32(arg.x32, arg.y32) }},
+		{name: "Mul64", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Mul64(arg.x64, arg.y64) }},
+		// --- Full-width divide ---
+		{name: "Div32", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Div32(arg.z32, arg.y32, arg.w32) }},
+		{name: "Div64", fn: func(arg *mathBitsBenchArg) { _, _ = bits.Div64(arg.z64, arg.y64, arg.w64) }},
+		{name: "Rem32", fn: func(arg *mathBitsBenchArg) { _ = bits.Rem32(arg.z32, arg.y32, arg.w32) }},
+		{name: "Rem64", fn: func(arg *mathBitsBenchArg) { _ = bits.Rem64(arg.z64, arg.y64, arg.w64) }},
+	}
+
+	trials := make([]testFn, 0, trialCount*len(tests))
+	for i := 0; i < trialCount; i++ {
+		for _, t := range tests {
+			trials = append(trials, testFn{
+				name: fmt.Sprintf(`%s.%d`, t.name, i),
+				fn:   t.fn,
+			})
+		}
+	}
+	if randomize {
+		r.Shuffle(len(trials), func(i, j int) {
+			trials[i], trials[j] = trials[j], trials[i]
+		})
+	}
+
+	for _, tt := range trials {
+		b.Run(tt.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				tt.fn(ins[i%inputSize])
+			}
+		})
+	}
+}
