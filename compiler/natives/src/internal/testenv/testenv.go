@@ -2,8 +2,9 @@
 
 package testenv
 
-// HasSrc reports whether the entire source tree is available under GOROOT.
-// In GopherJS, the Go source tree is not available at runtime.
+// GOPHERJS: HasSrc reports whether the entire source tree is available
+// under GOROOT. Since GopherJS doesn't have the untranspiled Go source tree
+// available at runtime, this is always false.
 func HasSrc() bool {
 	return false
 }

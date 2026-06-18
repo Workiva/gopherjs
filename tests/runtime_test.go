@@ -189,8 +189,8 @@ func (c *callStack) capture(amount int) {
 func TestCallers(t *testing.T) {
 	// Some of the GopherJS function names don't match upstream Go, or even the
 	// function names in the Go source when minified.
-	// Until https://github.com/gopherjs/gopherjs/issues/1085 is resolved, the
-	// mismatch is difficult to avoid, but we can at least use "masked" frames to
+	// In some cases the mismatch is difficult to avoid even with source maps,
+	// but we can at least use "masked" frames to
 	// make sure the number of frames matches expected.
 	opts := cmp.Comparer(func(a, b funcName) bool {
 		if a == masked("") || b == masked("") {
