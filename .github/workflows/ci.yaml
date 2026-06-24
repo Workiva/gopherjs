@@ -69,7 +69,10 @@ jobs:
 
   darwin_smoke:
     name: Darwin Smoke
-    runs-on: macos-latest
+    # Switch to macos-latest when we reach go1.24 support. macos-26+ has a
+    # LC_UUID update that causes Go builds older than go1.24 to fail to link.
+    # See https://tip.golang.org/doc/go1.24#linker
+    runs-on: macos-15
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
