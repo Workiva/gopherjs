@@ -49,7 +49,7 @@ func goRootVersion(goroot string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("`go version` command failed: %w", err)
 	}
-	// Expected output: go version go1.21.13 linux/amd64
+	// Expected output: go version go1.22.12 linux/amd64
 	parts := strings.Split(string(out), " ")
 	if len(parts) != 4 {
 		return "", fmt.Errorf("unexpected `go version` output %q, expected 4 words", string(out))
