@@ -1278,10 +1278,14 @@ func (s *Session) prepareAndCompilePackages(rootSrcs *sources.Sources) (*compile
 	}
 
 	// Compile all the sources into archives.
-	for _, srcs := range allSources {
-		if _, err := s.compilePackage(srcs, tContext); err != nil {
-			return nil, err
+	if os.Getenv("GOPHERJS_SERIAL_COMPILE") != "" {
+		for _, srcs := range allSources {
+			if _, err := s.compilePackage(srcs, tContext); err != nil {
+				return nil, err
+			}
 		}
+	} else if err := s.compilePackagesParallel(allSources, tContext); err != nil {
+		return nil, err
 	}
 
 	rootArchive, ok := s.UpToDateArchives[rootSrcs.ImportPath]

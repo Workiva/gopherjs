@@ -5,6 +5,7 @@ import (
 	"go/types"
 	"sort"
 	"strings"
+	"sync"
 
 	"golang.org/x/tools/go/types/typeutil"
 )
@@ -20,7 +21,8 @@ type (
 
 // InstanceMap implements a map-like data structure keyed by instances.
 //
-// Zero value is an equivalent of an empty map. Methods are not thread-safe.
+// Zero value is an equivalent of an empty map. Methods that modify the map are
+// not thread-safe, but lookups may run concurrently with each other.
 //
 // Since Instance contains a slice and is not comparable, it can not be used as
 // a regular map key, but we can compare its fields manually. When comparing
@@ -29,16 +31,27 @@ type (
 // entries by a combined hash of type args. This type is generally inspired by
 // [golang.org/x/tools/go/types/typeutil#Map]
 type InstanceMap[V any] struct {
-	data   map[types.Object]mapBuckets[V]
-	len    int
-	hasher typeutil.Hasher
+	data map[types.Object]mapBuckets[V]
+	len  int
+
+	// hasherMu guards hasher, which memoizes hashes and so is modified even
+	// by lookups.
+	hasherMu sync.Mutex
+	hasher   typeutil.Hasher
+}
+
+// hash returns the bucket ID for the given key.
+func (im *InstanceMap[V]) hash(key Instance) uint32 {
+	im.hasherMu.Lock()
+	defer im.hasherMu.Unlock()
+	return typeHash(im.hasher, key.TNest, key.TArgs)
 }
 
 // findIndex returns bucket and index of the entry with the given key.
 // If the given key isn't found, an empty bucket and -1 are returned.
 func (im *InstanceMap[V]) findIndex(key Instance) (mapBucket[V], int) {
 	if im != nil && im.data != nil {
-		bucket := im.data[key.Object][typeHash(im.hasher, key.TNest, key.TArgs)]
+		bucket := im.data[key.Object][im.hash(key)]
 		for i, candidate := range bucket {
 			if candidateArgsMatch(key, candidate) {
 				return bucket, i
@@ -82,7 +95,7 @@ func (im *InstanceMap[V]) Set(key Instance, value V) V {
 	if _, ok := im.data[key.Object]; !ok {
 		im.data[key.Object] = mapBuckets[V]{}
 	}
-	bucketID := typeHash(im.hasher, key.TNest, key.TArgs)
+	bucketID := im.hash(key)
 
 	// If there is already an identical key in the map, override the entry value.
 	hole := -1

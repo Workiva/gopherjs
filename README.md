@@ -102,6 +102,8 @@ There are some GopherJS-specific environment variables:
 - `GOPHERJS_NO_DIRCACHE` - if set, GopherJS runs `go list` once per imported
   package to locate it, instead of listing each dependency tree once and
   caching package locations.
+- `GOPHERJS_SERIAL_COMPILE` - if set, GopherJS compiles packages one at a time
+  instead of in parallel.
 
 ### Performance Tips
 

@@ -259,21 +259,27 @@ func (i PackageInstanceSets) allExhausted() bool {
 }
 
 // Pkg returns InstanceSet for objects defined in the given package.
+//
+// Pkg never modifies the map, so it is safe to call concurrently once all
+// instances have been added. Use Add to add instances, not the returned set.
 func (i PackageInstanceSets) Pkg(pkg *types.Package) *InstanceSet {
-	path := pkg.Path()
-	iset, ok := i[path]
-	if !ok {
-		iset = &InstanceSet{}
-		i[path] = iset
+	if iset, ok := i[pkg.Path()]; ok {
+		return iset
 	}
-	return iset
+	return &InstanceSet{}
 }
 
 // Add instances to the appropriate package's set. Automatically initialized
 // new per-package sets upon a first encounter.
 func (i PackageInstanceSets) Add(instances ...Instance) {
 	for _, inst := range instances {
-		i.Pkg(inst.Object.Pkg()).Add(inst)
+		path := inst.Object.Pkg().Path()
+		iset, ok := i[path]
+		if !ok {
+			iset = &InstanceSet{}
+			i[path] = iset
+		}
+		iset.Add(inst)
 	}
 }
 
